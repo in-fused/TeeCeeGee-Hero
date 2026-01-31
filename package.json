@@ -1,0 +1,21 @@
+{
+  "name": "packfinder-api",
+  "private": true,
+  "scripts": {
+    "dev": "ts-node src/server.ts",
+    "migrate": "ts-node src/db/migrate.ts",
+    "ingest:tcgcsv": "ts-node packages/connectors/tcgcsv/ingest.ts",
+    "ingest:zip": "ts-node packages/geo/zip/ingest.ts",
+    "ingest:stores": "ts-node packages/geo/stores/ingest.ts"
+  },
+  "dependencies": {
+    "express": "^4.19.0",
+    "axios": "^1.6.0",
+    "csv-parse": "^5.5.0",
+    "pg": "^8.11.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "ts-node": "^10.9.2"
+  }
+}

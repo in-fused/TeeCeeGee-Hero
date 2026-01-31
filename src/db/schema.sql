@@ -1,0 +1,29 @@
+
+CREATE TABLE IF NOT EXISTS products (
+  id SERIAL PRIMARY KEY,
+  tcgplayer_id INTEGER UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL,
+  set_name TEXT,
+  game TEXT NOT NULL,
+  source TEXT NOT NULL,
+  retrieved_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS zip_centroids (
+  zip VARCHAR(5) PRIMARY KEY,
+  latitude DOUBLE PRECISION NOT NULL,
+  longitude DOUBLE PRECISION NOT NULL,
+  source TEXT NOT NULL,
+  retrieved_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS stores (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL,
+  latitude DOUBLE PRECISION NOT NULL,
+  longitude DOUBLE PRECISION NOT NULL,
+  source TEXT NOT NULL,
+  retrieved_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
