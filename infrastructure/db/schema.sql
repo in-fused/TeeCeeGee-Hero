@@ -1,0 +1,19 @@
+-- PostgreSQL + PostGIS schema
+
+CREATE TABLE IF NOT EXISTS stores (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL,
+  latitude DOUBLE PRECISION,
+  longitude DOUBLE PRECISION,
+  source TEXT NOT NULL,
+  retrieved_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS products (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL,
+  source TEXT NOT NULL,
+  retrieved_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
