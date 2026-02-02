@@ -15,6 +15,13 @@ async function ingestZipCentroids(): Promise<void> {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
   try {
+    // Detect PostGIS
+    const pgisCheck = await pool.query(
+      "SELECT 1 FROM pg_extension WHERE extname = 'postgis'",
+    );
+    const usePostGIS = (pgisCheck.rowCount ?? 0) > 0;
+    process.stdout.write(`PostGIS: ${usePostGIS ? 'available' : 'not available (using lat/lng only)'}\n`);
+
     process.stdout.write('Fetching ZIP centroids from US Census Bureau...\n');
     const txt = await axios.get(
       'https://www2.census.gov/geo/docs/maps-data/data/gazetteer/2023_Gazetteer/2023_Gaz_zcta_national.txt',
@@ -40,17 +47,27 @@ async function ingestZipCentroids(): Promise<void> {
 
         if (!zip || zip.length !== 5 || isNaN(lat) || isNaN(lon)) continue;
 
-        values.push(
-          `($${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}, ST_SetSRID(ST_MakePoint($${paramIdx + 2}, $${paramIdx + 1}), 4326)::geography, 'US_CENSUS')`,
-        );
+        if (usePostGIS) {
+          values.push(
+            `($${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}, ST_SetSRID(ST_MakePoint($${paramIdx + 2}, $${paramIdx + 1}), 4326)::geography, 'US_CENSUS')`,
+          );
+        } else {
+          values.push(
+            `($${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}, 'US_CENSUS')`,
+          );
+        }
         params.push(zip, lat, lon);
         paramIdx += 3;
       }
 
       if (values.length === 0) continue;
 
+      const columns = usePostGIS
+        ? 'zip, latitude, longitude, location, source'
+        : 'zip, latitude, longitude, source';
+
       await pool.query(
-        `INSERT INTO zip_centroids (zip, latitude, longitude, location, source)
+        `INSERT INTO zip_centroids (${columns})
          VALUES ${values.join(', ')}
          ON CONFLICT (zip) DO NOTHING`,
         params,

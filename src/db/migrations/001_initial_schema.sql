@@ -1,22 +1,27 @@
--- Enable PostGIS for geographic queries
-CREATE EXTENSION IF NOT EXISTS postgis;
+-- Try to enable PostGIS; if unavailable, fall back to lat/lng with Haversine
+DO $$
+BEGIN
+  CREATE EXTENSION IF NOT EXISTS postgis;
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'PostGIS not available — using Haversine fallback';
+END
+$$;
 
 -- Store type classification per PRD
-CREATE TYPE store_type AS ENUM ('big_box', 'lgs', 'vending', 'online', 'unknown');
+DO $$ BEGIN CREATE TYPE store_type AS ENUM ('big_box', 'lgs', 'vending', 'online', 'unknown'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Product type classification
-CREATE TYPE product_type AS ENUM ('etb', 'booster_box', 'booster_pack', 'blister', 'collection_box', 'tin', 'bundle', 'other');
+DO $$ BEGIN CREATE TYPE product_type AS ENUM ('etb', 'booster_box', 'booster_pack', 'blister', 'collection_box', 'tin', 'bundle', 'other'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Game identifier
-CREATE TYPE game_type AS ENUM ('pokemon', 'one_piece');
+DO $$ BEGIN CREATE TYPE game_type AS ENUM ('pokemon', 'one_piece'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Language variants
-CREATE TYPE language_type AS ENUM ('ENG', 'JPN');
+DO $$ BEGIN CREATE TYPE language_type AS ENUM ('ENG', 'JPN'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ZIP code centroids from US Census Bureau
 CREATE TABLE IF NOT EXISTS zip_centroids (
   zip VARCHAR(5) PRIMARY KEY,
-  location GEOGRAPHY(POINT, 4326) NOT NULL,
   latitude DOUBLE PRECISION NOT NULL,
   longitude DOUBLE PRECISION NOT NULL,
   state VARCHAR(2),
@@ -24,14 +29,24 @@ CREATE TABLE IF NOT EXISTS zip_centroids (
   retrieved_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_zip_centroids_location ON zip_centroids USING GIST(location);
+-- Add geography column only if PostGIS is available
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'postgis') THEN
+    BEGIN
+      ALTER TABLE zip_centroids ADD COLUMN location GEOGRAPHY(POINT, 4326);
+      CREATE INDEX idx_zip_centroids_location ON zip_centroids USING GIST(location);
+    EXCEPTION WHEN duplicate_column THEN NULL;
+    END;
+  END IF;
+END
+$$;
 
 -- Retail store locations
 CREATE TABLE IF NOT EXISTS stores (
   id SERIAL PRIMARY KEY,
   name TEXT NOT NULL,
   store_type store_type NOT NULL DEFAULT 'unknown',
-  location GEOGRAPHY(POINT, 4326) NOT NULL,
   latitude DOUBLE PRECISION NOT NULL,
   longitude DOUBLE PRECISION NOT NULL,
   address TEXT,
@@ -43,9 +58,21 @@ CREATE TABLE IF NOT EXISTS stores (
   retrieved_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_stores_location ON stores USING GIST(location);
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'postgis') THEN
+    BEGIN
+      ALTER TABLE stores ADD COLUMN location GEOGRAPHY(POINT, 4326);
+      CREATE INDEX idx_stores_location ON stores USING GIST(location);
+    EXCEPTION WHEN duplicate_column THEN NULL;
+    END;
+  END IF;
+END
+$$;
+
 CREATE INDEX IF NOT EXISTS idx_stores_type ON stores (store_type);
 CREATE INDEX IF NOT EXISTS idx_stores_state ON stores (state);
+CREATE INDEX IF NOT EXISTS idx_stores_lat_lon ON stores (latitude, longitude);
 
 -- Product catalog (TCG sealed products)
 CREATE TABLE IF NOT EXISTS products (
@@ -67,7 +94,7 @@ CREATE INDEX IF NOT EXISTS idx_products_game ON products (game);
 CREATE INDEX IF NOT EXISTS idx_products_type ON products (product_type);
 CREATE INDEX IF NOT EXISTS idx_products_name ON products USING gin(to_tsvector('english', normalized_name));
 
--- SKU normalization table (maps variant names to canonical product)
+-- SKU normalization table
 CREATE TABLE IF NOT EXISTS skus (
   id SERIAL PRIMARY KEY,
   product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
@@ -80,7 +107,7 @@ CREATE TABLE IF NOT EXISTS skus (
 CREATE INDEX IF NOT EXISTS idx_skus_product ON skus (product_id);
 CREATE INDEX IF NOT EXISTS idx_skus_retailer ON skus (retailer);
 
--- Public availability signals (eBay listings, TCGPlayer prices, etc.)
+-- Public availability signals
 CREATE TABLE IF NOT EXISTS availability_signals (
   id SERIAL PRIMARY KEY,
   product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
@@ -131,7 +158,7 @@ CREATE TABLE IF NOT EXISTS restock_events (
 CREATE INDEX IF NOT EXISTS idx_restock_store ON restock_events (store_id);
 CREATE INDEX IF NOT EXISTS idx_restock_detected ON restock_events (detected_at DESC);
 
--- Connector health tracking (per guardrails: explicit failure status)
+-- Connector health tracking
 CREATE TABLE IF NOT EXISTS connector_health (
   id SERIAL PRIMARY KEY,
   connector_name TEXT UNIQUE NOT NULL,

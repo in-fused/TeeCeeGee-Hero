@@ -3,7 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { env } from './lib/env';
-import { pool, healthCheck, shutdown } from './lib/db';
+import { pool, healthCheck, hasPostGIS, shutdown } from './lib/db';
 import { logger } from './lib/logger';
 
 const app = express();
@@ -153,23 +153,51 @@ app.get('/search', async (req: Request, res: Response) => {
 
     const { latitude, longitude } = z.rows[0];
 
-    let storeFilter = '';
-    const params: (number | string)[] = [latitude, longitude, radiusMeters];
+    const usePostGIS = await hasPostGIS();
 
-    if (storeType) {
-      storeFilter = 'AND store_type = $4';
-      params.push(storeType);
+    let stores;
+    if (usePostGIS) {
+      let storeFilter = '';
+      const params: (number | string)[] = [latitude, longitude, radiusMeters];
+      if (storeType) {
+        storeFilter = 'AND store_type = $4';
+        params.push(storeType);
+      }
+      stores = await pool.query(
+        `SELECT id, name, store_type, latitude, longitude, address, city, state, zip, source,
+                ST_Distance(location, ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography) / 1609.344 AS distance_miles
+         FROM stores
+         WHERE ST_DWithin(location, ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography, $3)
+         ${storeFilter}
+         ORDER BY distance_miles`,
+        params,
+      );
+    } else {
+      // Haversine fallback when PostGIS is not available
+      let storeFilter = '';
+      const params: (number | string)[] = [latitude, longitude, radius];
+      if (storeType) {
+        storeFilter = 'AND store_type = $4';
+        params.push(storeType);
+      }
+      stores = await pool.query(
+        `SELECT id, name, store_type, latitude, longitude, address, city, state, zip, source,
+                (3959 * acos(
+                  LEAST(1, cos(radians($1)) * cos(radians(latitude)) *
+                  cos(radians(longitude) - radians($2)) +
+                  sin(radians($1)) * sin(radians(latitude)))
+                )) AS distance_miles
+         FROM stores
+         WHERE (3959 * acos(
+                  LEAST(1, cos(radians($1)) * cos(radians(latitude)) *
+                  cos(radians(longitude) - radians($2)) +
+                  sin(radians($1)) * sin(radians(latitude)))
+                )) <= $3
+         ${storeFilter}
+         ORDER BY distance_miles`,
+        params,
+      );
     }
-
-    const stores = await pool.query(
-      `SELECT id, name, store_type, latitude, longitude, address, city, state, zip, source,
-              ST_Distance(location, ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography) / 1609.344 AS distance_miles
-       FROM stores
-       WHERE ST_DWithin(location, ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography, $3)
-       ${storeFilter}
-       ORDER BY distance_miles`,
-      params,
-    );
 
     res.json({
       zip,

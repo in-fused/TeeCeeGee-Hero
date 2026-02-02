@@ -55,6 +55,13 @@ async function ingestStores(): Promise<void> {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
   try {
+    // Detect PostGIS
+    const pgisCheck = await pool.query(
+      "SELECT 1 FROM pg_extension WHERE extname = 'postgis'",
+    );
+    const usePostGIS = (pgisCheck.rowCount ?? 0) > 0;
+    process.stdout.write(`PostGIS: ${usePostGIS ? 'available' : 'not available (using lat/lng only)'}\n`);
+
     process.stdout.write('Fetching stores from OpenStreetMap (US only)...\n');
     const res = await axios.post(
       'https://overpass-api.de/api/interpreter',
@@ -102,17 +109,27 @@ async function ingestStores(): Promise<void> {
         const state = el.tags?.['addr:state'] || null;
         const zip = el.tags?.['addr:postcode']?.substring(0, 5) || null;
 
-        values.push(
-          `($${paramIdx}, $${paramIdx + 1}::store_type, $${paramIdx + 2}, $${paramIdx + 3}, ST_SetSRID(ST_MakePoint($${paramIdx + 3}, $${paramIdx + 2}), 4326)::geography, $${paramIdx + 4}, $${paramIdx + 5}, $${paramIdx + 6}, $${paramIdx + 7}, $${paramIdx + 8}, 'OPENSTREETMAP')`,
-        );
+        if (usePostGIS) {
+          values.push(
+            `($${paramIdx}, $${paramIdx + 1}::store_type, $${paramIdx + 2}, $${paramIdx + 3}, ST_SetSRID(ST_MakePoint($${paramIdx + 3}, $${paramIdx + 2}), 4326)::geography, $${paramIdx + 4}, $${paramIdx + 5}, $${paramIdx + 6}, $${paramIdx + 7}, $${paramIdx + 8}, 'OPENSTREETMAP')`,
+          );
+        } else {
+          values.push(
+            `($${paramIdx}, $${paramIdx + 1}::store_type, $${paramIdx + 2}, $${paramIdx + 3}, $${paramIdx + 4}, $${paramIdx + 5}, $${paramIdx + 6}, $${paramIdx + 7}, $${paramIdx + 8}, 'OPENSTREETMAP')`,
+          );
+        }
         params.push(name, storeType, lat, lon, addr, city, state, zip, osmId);
         paramIdx += 9;
       }
 
       if (values.length === 0) continue;
 
+      const columns = usePostGIS
+        ? 'name, store_type, latitude, longitude, location, address, city, state, zip, osm_id, source'
+        : 'name, store_type, latitude, longitude, address, city, state, zip, osm_id, source';
+
       await pool.query(
-        `INSERT INTO stores (name, store_type, latitude, longitude, location, address, city, state, zip, osm_id, source)
+        `INSERT INTO stores (${columns})
          VALUES ${values.join(', ')}
          ON CONFLICT (osm_id) DO UPDATE SET
            name = EXCLUDED.name,

@@ -1,0 +1,31 @@
+# Render Infrastructure-as-Code blueprint
+# This file tells Render exactly what to create when you connect the repo
+
+databases:
+  - name: packfinder-db
+    plan: free
+    databaseName: packfinder
+    postgresSQLVersion: "16"
+    ipAllowList: []
+
+services:
+  - type: web
+    plan: free
+    name: packfinder-api
+    runtime: node
+    buildCommand: npm ci && npm run build && npm run migrate
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: RATE_LIMIT_WINDOW_MS
+        value: "60000"
+      - key: RATE_LIMIT_MAX_REQUESTS
+        value: "100"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: packfinder-db
+          property: connectionString
