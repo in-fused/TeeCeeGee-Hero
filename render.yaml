@@ -13,7 +13,7 @@ services:
     plan: free
     name: packfinder-api
     runtime: node
-    buildCommand: npm ci && npm run build && npm run migrate
+    buildCommand: npm ci --include=dev && npm run build && node dist/src/db/migrate.js
     startCommand: npm start
     healthCheckPath: /health
     envVars:
