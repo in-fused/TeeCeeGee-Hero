@@ -7,7 +7,7 @@ import { PageTransition } from '../components/PageTransition';
 import { SearchInput } from '../components/SearchInput';
 import { StoreCard } from '../components/StoreCard';
 import { Spinner } from '../components/Spinner';
-import { searchStores, type Store } from '../lib/api';
+import { searchStores, getStoreProducts, type Store, type ProductWithSignal } from '../lib/api';
 
 // Custom marker icons
 function createIcon(color: string) {
@@ -58,6 +58,8 @@ export function MapView() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [selectedStore, setSelectedStore] = useState<Store | null>(null);
+  const [storeProducts, setStoreProducts] = useState<ProductWithSignal[]>([]);
+  const [loadingProducts, setLoadingProducts] = useState(false);
   const mapRef = useRef<L.Map | null>(null);
 
   const doSearch = useCallback(async () => {
@@ -91,10 +93,22 @@ export function MapView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function handleStoreSelect(store: Store) {
+  async function handleStoreSelect(store: Store) {
     setSelectedStore(store);
+    setStoreProducts([]);
     if (mapRef.current) {
       mapRef.current.flyTo([store.latitude, store.longitude], 16, { duration: 1 });
+    }
+    // Fetch products sighted at this store
+    setLoadingProducts(true);
+    try {
+      const result = await getStoreProducts(store.id);
+      setStoreProducts(result.products || []);
+    } catch {
+      // No products found is not an error condition
+      setStoreProducts([]);
+    } finally {
+      setLoadingProducts(false);
     }
   }
 
@@ -286,7 +300,7 @@ export function MapView() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 20 }}
-                className="absolute bottom-6 left-6 right-6 lg:left-auto lg:right-6 lg:w-80 z-[1000] rounded-xl bg-[var(--color-surface-raised)]/95 backdrop-blur-xl border border-[var(--color-border-subtle)] p-4 shadow-2xl"
+                className="absolute bottom-6 left-6 right-6 lg:left-auto lg:right-6 lg:w-96 z-[1000] rounded-xl bg-[var(--color-surface-raised)]/95 backdrop-blur-xl border border-[var(--color-border-subtle)] p-4 shadow-2xl max-h-[60vh] overflow-y-auto"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -311,12 +325,80 @@ export function MapView() {
                     </svg>
                   </button>
                 </div>
+
                 <button
                   onClick={() => openDirections(selectedStore)}
                   className="w-full mt-3 py-2 rounded-lg bg-brand-600 text-white text-xs font-medium hover:bg-brand-500 transition-colors"
                 >
                   Open in Google Maps
                 </button>
+
+                {/* Products sighted at this store */}
+                <div className="mt-4 pt-4 border-t border-white/10">
+                  <p className="text-[10px] uppercase tracking-wider text-gray-500 font-medium mb-2">
+                    Products Sighted Here
+                  </p>
+
+                  {loadingProducts && (
+                    <div className="py-4 text-center">
+                      <Spinner />
+                    </div>
+                  )}
+
+                  {!loadingProducts && storeProducts.length === 0 && (
+                    <p className="text-xs text-gray-500 py-3">
+                      No product sightings yet. Be the first to report!
+                    </p>
+                  )}
+
+                  {!loadingProducts && storeProducts.length > 0 && (
+                    <div className="space-y-2">
+                      {storeProducts.slice(0, 5).map((product) => (
+                        <div
+                          key={product.id}
+                          className="rounded-lg bg-white/5 p-3 border border-white/5"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <h4 className="text-xs font-medium text-white truncate">
+                                {product.name}
+                              </h4>
+                              <p className="text-[10px] text-gray-500 mt-0.5">
+                                Sighted {new Date(product.observed_at).toLocaleDateString()}
+                              </p>
+                            </div>
+                            <span className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-green-500/20 text-green-300">
+                              {Math.round(product.confidence * 100)}%
+                            </span>
+                          </div>
+                          <div className="flex gap-2 mt-2">
+                            <a
+                              href={product.links.tcgplayer}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex-1 text-center py-1 rounded bg-[#1a7fbb]/30 hover:bg-[#1a7fbb]/50 text-[10px] font-medium text-[#5eb8e8] transition-colors"
+                            >
+                              TCGplayer
+                            </a>
+                            <a
+                              href={product.links.ebay_search}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex-1 text-center py-1 rounded bg-[#e53238]/30 hover:bg-[#e53238]/50 text-[10px] font-medium text-[#f5af02] transition-colors"
+                            >
+                              eBay
+                            </a>
+                          </div>
+                        </div>
+                      ))}
+                      {storeProducts.length > 5 && (
+                        <p className="text-[10px] text-gray-500 text-center pt-1">
+                          +{storeProducts.length - 5} more products
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
               </motion.div>
             )}
           </AnimatePresence>

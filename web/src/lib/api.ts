@@ -86,3 +86,42 @@ export function searchStores(params: { zip: string; radius?: string; store_type?
 export function getProductSignals(productId: number) {
   return request<{ product_id: number; signals: Signal[] }>(`/products/${productId}/signals`);
 }
+
+export interface ProductDetail extends Product {
+  links: {
+    tcgplayer: string;
+    ebay_search: string;
+  };
+}
+
+export interface StoreWithSignal extends Store {
+  signal_type: string;
+  confidence: number;
+  observed_at: string;
+}
+
+export interface ProductWithSignal extends Product {
+  signal_type: string;
+  confidence: number;
+  observed_at: string;
+  links: {
+    tcgplayer: string;
+    ebay_search: string;
+  };
+}
+
+export function getProduct(productId: number) {
+  return request<ProductDetail>(`/products/${productId}`);
+}
+
+export function getProductStores(productId: number) {
+  return request<{ product_id: number; total: number; stores: StoreWithSignal[] }>(
+    `/products/${productId}/stores`,
+  );
+}
+
+export function getStoreProducts(storeId: number) {
+  return request<{ store_id: number; total: number; products: ProductWithSignal[] }>(
+    `/stores/${storeId}/products`,
+  );
+}
