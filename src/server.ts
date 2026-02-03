@@ -258,6 +258,161 @@ app.get('/stores/:id/shipments', async (req: Request, res: Response) => {
   }
 });
 
+// Get single product with marketplace links
+app.get('/products/:id', async (req: Request, res: Response) => {
+  try {
+    const productId = Number(req.params.id);
+    if (!productId || isNaN(productId)) {
+      res.status(400).json({ error: 'Valid product ID required' });
+      return;
+    }
+
+    const result = await pool.query('SELECT * FROM products WHERE id = $1', [productId]);
+
+    if (!result.rows.length) {
+      res.status(404).json({ error: 'Product not found' });
+      return;
+    }
+
+    const product = result.rows[0];
+
+    // Build marketplace links
+    const links = {
+      tcgplayer: `https://www.tcgplayer.com/product/${product.tcgplayer_id}`,
+      ebay_search: `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(product.name)}&_sacat=0`,
+    };
+
+    res.json({ ...product, links });
+  } catch (err) {
+    logger.error({ err }, 'product detail query failed');
+    res.status(500).json({ status: 'ERROR', message: 'Product query failed' });
+  }
+});
+
+// Submit availability signal (user sighting)
+app.post('/signals', async (req: Request, res: Response) => {
+  try {
+    const { product_id, store_id, signal_type, source, notes } = req.body;
+
+    // Validate required fields
+    if (!product_id || !store_id) {
+      res.status(400).json({ error: 'product_id and store_id are required' });
+      return;
+    }
+
+    const productIdNum = Number(product_id);
+    const storeIdNum = Number(store_id);
+
+    if (isNaN(productIdNum) || isNaN(storeIdNum)) {
+      res.status(400).json({ error: 'product_id and store_id must be numbers' });
+      return;
+    }
+
+    // Verify product and store exist
+    const [productCheck, storeCheck] = await Promise.all([
+      pool.query('SELECT id FROM products WHERE id = $1', [productIdNum]),
+      pool.query('SELECT id FROM stores WHERE id = $1', [storeIdNum]),
+    ]);
+
+    if (!productCheck.rows.length) {
+      res.status(404).json({ error: 'Product not found' });
+      return;
+    }
+    if (!storeCheck.rows.length) {
+      res.status(404).json({ error: 'Store not found' });
+      return;
+    }
+
+    // Default signal type and confidence
+    const type = signal_type || 'user_sighting';
+    const confidence = type === 'user_sighting' ? 0.7 : 0.5;
+
+    const result = await pool.query(
+      `INSERT INTO availability_signals (product_id, store_id, signal_type, confidence, source, raw_data)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING *`,
+      [
+        productIdNum,
+        storeIdNum,
+        type,
+        confidence,
+        source || 'user_submission',
+        notes ? JSON.stringify({ notes }) : null,
+      ],
+    );
+
+    logger.info({ product_id: productIdNum, store_id: storeIdNum, type }, 'Signal submitted');
+    res.status(201).json({ status: 'OK', signal: result.rows[0] });
+  } catch (err) {
+    logger.error({ err }, 'signal submission failed');
+    res.status(500).json({ status: 'ERROR', message: 'Signal submission failed' });
+  }
+});
+
+// Get stores where a product has been sighted
+app.get('/products/:id/stores', async (req: Request, res: Response) => {
+  try {
+    const productId = Number(req.params.id);
+    if (!productId || isNaN(productId)) {
+      res.status(400).json({ error: 'Valid product ID required' });
+      return;
+    }
+
+    const result = await pool.query(
+      `SELECT DISTINCT ON (s.id)
+         s.id, s.name, s.store_type, s.latitude, s.longitude,
+         s.address, s.city, s.state, s.zip,
+         sig.signal_type, sig.confidence, sig.observed_at
+       FROM stores s
+       INNER JOIN availability_signals sig ON sig.store_id = s.id
+       WHERE sig.product_id = $1
+       ORDER BY s.id, sig.observed_at DESC`,
+      [productId],
+    );
+
+    res.json({ product_id: productId, total: result.rows.length, stores: result.rows });
+  } catch (err) {
+    logger.error({ err }, 'product stores query failed');
+    res.status(500).json({ status: 'ERROR', message: 'Query failed' });
+  }
+});
+
+// Get products sighted at a store
+app.get('/stores/:id/products', async (req: Request, res: Response) => {
+  try {
+    const storeId = Number(req.params.id);
+    if (!storeId || isNaN(storeId)) {
+      res.status(400).json({ error: 'Valid store ID required' });
+      return;
+    }
+
+    const result = await pool.query(
+      `SELECT DISTINCT ON (p.id)
+         p.id, p.tcgplayer_id, p.name, p.game, p.product_type, p.image_url,
+         sig.signal_type, sig.confidence, sig.observed_at
+       FROM products p
+       INNER JOIN availability_signals sig ON sig.product_id = p.id
+       WHERE sig.store_id = $1
+       ORDER BY p.id, sig.observed_at DESC`,
+      [storeId],
+    );
+
+    // Add marketplace links
+    const products = result.rows.map((p) => ({
+      ...p,
+      links: {
+        tcgplayer: `https://www.tcgplayer.com/product/${p.tcgplayer_id}`,
+        ebay_search: `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(p.name)}&_sacat=0`,
+      },
+    }));
+
+    res.json({ store_id: storeId, total: products.length, products });
+  } catch (err) {
+    logger.error({ err }, 'store products query failed');
+    res.status(500).json({ status: 'ERROR', message: 'Query failed' });
+  }
+});
+
 // Admin endpoints (ingestion triggers)
 app.use('/admin', adminRouter);
 

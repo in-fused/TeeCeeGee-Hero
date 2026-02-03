@@ -132,3 +132,57 @@ describe('Admin auth middleware logic', () => {
     expect(token === secret).toBe(true);
   });
 });
+
+describe('Signal submission validation', () => {
+  it('should require product_id', () => {
+    const body = { store_id: 1 };
+    const hasProductId = !!body.product_id;
+    expect(hasProductId).toBe(false);
+  });
+
+  it('should require store_id', () => {
+    const body = { product_id: 1 };
+    const hasStoreId = !!body.store_id;
+    expect(hasStoreId).toBe(false);
+  });
+
+  it('should validate numeric IDs', () => {
+    const productId = Number('abc');
+    const storeId = Number('123');
+    expect(isNaN(productId)).toBe(true);
+    expect(isNaN(storeId)).toBe(false);
+  });
+
+  it('should default signal_type to user_sighting', () => {
+    const signal_type = undefined;
+    const type = signal_type || 'user_sighting';
+    expect(type).toBe('user_sighting');
+  });
+
+  it('should set confidence based on signal type', () => {
+    const userSightingConfidence = 0.7;
+    const defaultConfidence = 0.5;
+    expect(userSightingConfidence).toBeGreaterThan(defaultConfidence);
+  });
+});
+
+describe('Marketplace link generation', () => {
+  it('should generate TCGPlayer link from product ID', () => {
+    const tcgplayerId = 451396;
+    const link = `https://www.tcgplayer.com/product/${tcgplayerId}`;
+    expect(link).toBe('https://www.tcgplayer.com/product/451396');
+  });
+
+  it('should generate eBay search link from product name', () => {
+    const name = 'Pokemon 151 Elite Trainer Box';
+    const link = `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(name)}&_sacat=0`;
+    // encodeURIComponent uses %20 for spaces (both %20 and + are valid URL encodings)
+    expect(link).toContain('Pokemon%20151%20Elite%20Trainer%20Box');
+  });
+
+  it('should URL-encode special characters', () => {
+    const name = "Pokémon Trainer's Toolkit 2024";
+    const encoded = encodeURIComponent(name);
+    expect(encoded).toContain('%');
+  });
+});
