@@ -134,7 +134,7 @@ function classifyStore(shopType: string, name: string): string {
 }
 
 const overpassQuery = `
-[out:json][bbox:${US_BBOX}];
+[out:json][timeout:300][bbox:${US_BBOX}];
 (
   node["shop"="toys"];
   node["shop"="games"];
@@ -163,7 +163,7 @@ router.post('/ingest/stores', async (_req: Request, res: Response) => {
     const apiRes = await axios.post(
       'https://overpass-api.de/api/interpreter',
       `data=${encodeURIComponent(overpassQuery)}`,
-      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 120_000 },
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 300_000 },
     );
 
     interface OsmElement {
@@ -288,7 +288,7 @@ function detectLanguage(name: string, setName: string | null): string {
 // POST /admin/ingest/tcgcsv
 router.post('/ingest/tcgcsv', async (_req: Request, res: Response) => {
   try {
-    const csv = await axios.get('https://tcgcsv.com/products.csv', { timeout: 60_000 });
+    const csv = await axios.get('https://tcgcsv.com/products.csv', { timeout: 120_000 });
 
     interface CsvRecord {
       tcgplayer_id: string;
@@ -379,7 +379,7 @@ router.post('/ingest/all', async (req: Request, res: Response) => {
       const response = await axios.post(
         `http://localhost:${env.PORT}/admin/ingest/${target}`,
         {},
-        { headers: { Authorization: req.headers.authorization || '' }, timeout: 180_000 },
+        { headers: { Authorization: req.headers.authorization || '' }, timeout: 360_000 },
       );
       results[target] = response.data;
     } catch (err: unknown) {
