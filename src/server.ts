@@ -5,6 +5,7 @@ import rateLimit from 'express-rate-limit';
 import { env } from './lib/env';
 import { pool, healthCheck, hasPostGIS, shutdown } from './lib/db';
 import { logger } from './lib/logger';
+import { adminRouter } from './routes/admin';
 
 const app = express();
 
@@ -79,18 +80,13 @@ app.get('/products/search', async (req: Request, res: Response) => {
       params.push(language);
     }
     if (q) {
-      conditions.push(
-        `to_tsvector('english', normalized_name) @@ plainto_tsquery($${paramIdx++})`,
-      );
+      conditions.push(`to_tsvector('english', normalized_name) @@ plainto_tsquery($${paramIdx++})`);
       params.push(q);
     }
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const countResult = await pool.query(
-      `SELECT COUNT(*) as total FROM products ${where}`,
-      params,
-    );
+    const countResult = await pool.query(`SELECT COUNT(*) as total FROM products ${where}`, params);
 
     const limitIdx = paramIdx++;
     const offsetIdx = paramIdx;
@@ -261,6 +257,9 @@ app.get('/stores/:id/shipments', async (req: Request, res: Response) => {
     res.status(500).json({ status: 'ERROR', message: 'Shipment query failed' });
   }
 });
+
+// Admin endpoints (ingestion triggers)
+app.use('/admin', adminRouter);
 
 // 404 handler
 app.use((_req: Request, res: Response) => {
