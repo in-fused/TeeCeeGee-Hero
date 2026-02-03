@@ -96,7 +96,8 @@ export async function ingestStores(pool: Pool): Promise<StoreIngestResult> {
       const addr =
         [el.tags?.['addr:housenumber'], el.tags?.['addr:street']].filter(Boolean).join(' ') || null;
       const city = el.tags?.['addr:city'] || null;
-      const state = el.tags?.['addr:state'] || null;
+      const rawState = el.tags?.['addr:state'] || null;
+      const state = rawState && rawState.length <= 2 ? rawState.toUpperCase() : null;
       const zip = el.tags?.['addr:postcode']?.substring(0, 5) || null;
 
       if (usePostGIS) {
