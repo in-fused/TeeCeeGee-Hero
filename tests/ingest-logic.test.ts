@@ -1,20 +1,15 @@
 import { describe, it, expect } from 'vitest';
+import {
+  classifyStore,
+  detectProductType,
+  normalizeName,
+  detectLanguage,
+  isSealedProduct,
+} from '../src/ingest';
 
-// Test the pure logic functions from ingest scripts without DB connections
+// Tests use the shared ingest modules — no duplicated logic
 
 describe('Store classification', () => {
-  const BIG_BOX_NAMES = ['walmart', 'target', 'costco', "sam's club", 'meijer', 'fred meyer'];
-  const LGS_SHOP_TYPES = ['toys', 'games', 'anime', 'hobby', 'collector', 'trading_cards'];
-
-  function classifyStore(shopType: string, name: string): string {
-    const lower = name.toLowerCase();
-    if (BIG_BOX_NAMES.some((b) => lower.includes(b))) return 'big_box';
-    if (shopType === 'vending_machine' || lower.includes('vending')) return 'vending';
-    if (LGS_SHOP_TYPES.includes(shopType) || lower.includes('card') || lower.includes('comic'))
-      return 'lgs';
-    return 'unknown';
-  }
-
   it('should classify Walmart as big_box', () => {
     expect(classifyStore('supermarket', 'Walmart Supercenter')).toBe('big_box');
   });
@@ -41,19 +36,6 @@ describe('Store classification', () => {
 });
 
 describe('Product type detection', () => {
-  function detectProductType(name: string): string {
-    const lower = name.toLowerCase();
-    if (lower.includes('elite trainer box') || lower.includes('etb')) return 'etb';
-    if (lower.includes('booster box')) return 'booster_box';
-    if (lower.includes('booster pack') || lower.includes('sleeved booster')) return 'booster_pack';
-    if (lower.includes('blister')) return 'blister';
-    if (lower.includes('collection box') || lower.includes('premium collection'))
-      return 'collection_box';
-    if (lower.includes(' tin ') || lower.endsWith(' tin')) return 'tin';
-    if (lower.includes('bundle')) return 'bundle';
-    return 'other';
-  }
-
   it('should detect ETB products', () => {
     expect(detectProductType('Scarlet & Violet Elite Trainer Box')).toBe('etb');
   });
@@ -70,16 +52,24 @@ describe('Product type detection', () => {
     expect(detectProductType('Paldea Partners Tin')).toBe('tin');
   });
 
+  it('should detect blister packs', () => {
+    expect(detectProductType('Scarlet & Violet Blister Pack')).toBe('blister');
+  });
+
+  it('should detect collection boxes', () => {
+    expect(detectProductType('Charizard Premium Collection')).toBe('collection_box');
+  });
+
+  it('should detect bundles', () => {
+    expect(detectProductType('Scarlet & Violet Booster Bundle')).toBe('bundle');
+  });
+
   it('should return other for unrecognized types', () => {
     expect(detectProductType('Some Random Product')).toBe('other');
   });
 });
 
 describe('Name normalization', () => {
-  function normalizeName(name: string): string {
-    return name.replace(/\s+/g, ' ').replace(/[^\w\s-]/g, '').trim().toLowerCase();
-  }
-
   it('should lowercase names', () => {
     expect(normalizeName('Pokemon ETB')).toBe('pokemon etb');
   });
@@ -94,13 +84,6 @@ describe('Name normalization', () => {
 });
 
 describe('Language detection', () => {
-  function detectLanguage(name: string, setName: string | null): string {
-    const combined = `${name} ${setName || ''}`.toLowerCase();
-    if (combined.includes('japanese') || combined.includes('jpn') || combined.includes('japan'))
-      return 'JPN';
-    return 'ENG';
-  }
-
   it('should detect Japanese products', () => {
     expect(detectLanguage('Japanese Booster Box', null)).toBe('JPN');
   });
@@ -111,5 +94,43 @@ describe('Language detection', () => {
 
   it('should default to ENG', () => {
     expect(detectLanguage('Scarlet & Violet ETB', 'Base Set')).toBe('ENG');
+  });
+});
+
+describe('Sealed product detection', () => {
+  it('should detect ETBs as sealed', () => {
+    expect(isSealedProduct('Scarlet & Violet Elite Trainer Box')).toBe(true);
+  });
+
+  it('should detect booster boxes as sealed', () => {
+    expect(isSealedProduct('One Piece OP-09 Booster Box')).toBe(true);
+  });
+
+  it('should detect tins as sealed', () => {
+    expect(isSealedProduct('Paldea Partners Mini Tin')).toBe(true);
+  });
+
+  it('should detect build & battle as sealed', () => {
+    expect(isSealedProduct('Scarlet & Violet Build & Battle Box')).toBe(true);
+  });
+
+  it('should detect starter decks as sealed', () => {
+    expect(isSealedProduct('One Piece Starter Deck - Straw Hat Crew')).toBe(true);
+  });
+
+  it('should detect display boxes as sealed', () => {
+    expect(isSealedProduct('Obsidian Flames Booster Display')).toBe(true);
+  });
+
+  it('should reject individual cards', () => {
+    expect(isSealedProduct('Charizard ex 006/165')).toBe(false);
+  });
+
+  it('should reject trainer cards', () => {
+    expect(isSealedProduct("Professor's Research 087/091")).toBe(false);
+  });
+
+  it('should reject energy cards', () => {
+    expect(isSealedProduct('Basic Fire Energy')).toBe(false);
   });
 });

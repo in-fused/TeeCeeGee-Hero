@@ -72,3 +72,15 @@ describe('Database schema validation', () => {
     expect(schema).toContain('last_error');
   });
 });
+
+describe('Migration 002 - product image_url', () => {
+  const migration002 = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'db', 'migrations', '002_add_product_image_url.sql'),
+    'utf8',
+  );
+
+  it('should add image_url column to products', () => {
+    expect(migration002).toContain('image_url');
+    expect(migration002).toContain('products');
+  });
+});
