@@ -6,6 +6,7 @@ import { env } from './lib/env';
 import { pool, healthCheck, hasPostGIS, shutdown } from './lib/db';
 import { logger } from './lib/logger';
 import { adminRouter } from './routes/admin';
+import { webhookRouter } from './routes/webhooks';
 
 const app = express();
 
@@ -412,6 +413,92 @@ app.get('/stores/:id/products', async (req: Request, res: Response) => {
     res.status(500).json({ status: 'ERROR', message: 'Query failed' });
   }
 });
+
+// Price history for a product
+app.get('/products/:id/prices', async (req: Request, res: Response) => {
+  try {
+    const productId = Number(req.params.id);
+    if (!productId || isNaN(productId)) {
+      res.status(400).json({ error: 'Valid product ID required' });
+      return;
+    }
+
+    const limit = Math.min(Number(req.query.limit) || 50, 200);
+
+    const result = await pool.query(
+      `SELECT price, source, observed_at
+       FROM price_history
+       WHERE product_id = $1
+       ORDER BY observed_at DESC
+       LIMIT $2`,
+      [productId, limit],
+    );
+
+    res.json({ product_id: productId, total: result.rows.length, prices: result.rows });
+  } catch (err) {
+    logger.error({ err }, 'price history query failed');
+    res.status(500).json({ status: 'ERROR', message: 'Price history query failed' });
+  }
+});
+
+// Stock levels for a product across stores
+app.get('/products/:id/stock', async (req: Request, res: Response) => {
+  try {
+    const productId = Number(req.params.id);
+    if (!productId || isNaN(productId)) {
+      res.status(400).json({ error: 'Valid product ID required' });
+      return;
+    }
+
+    const result = await pool.query(
+      `SELECT sl.*, s.name as store_name, s.store_type, s.city, s.state
+       FROM stock_levels sl
+       JOIN stores s ON sl.store_id = s.id
+       WHERE sl.product_id = $1
+       ORDER BY sl.quantity DESC`,
+      [productId],
+    );
+
+    res.json({ product_id: productId, total: result.rows.length, stock: result.rows });
+  } catch (err) {
+    logger.error({ err }, 'stock levels query failed');
+    res.status(500).json({ status: 'ERROR', message: 'Stock levels query failed' });
+  }
+});
+
+// Stock levels for a store (all products)
+app.get('/stores/:id/stock', async (req: Request, res: Response) => {
+  try {
+    const storeId = Number(req.params.id);
+    if (!storeId || isNaN(storeId)) {
+      res.status(400).json({ error: 'Valid store ID required' });
+      return;
+    }
+
+    const lowStockOnly = req.query.low_stock === 'true';
+
+    let query = `SELECT sl.*, p.name as product_name, p.game, p.product_type, p.market_price, p.image_url
+       FROM stock_levels sl
+       JOIN products p ON sl.product_id = p.id
+       WHERE sl.store_id = $1`;
+
+    if (lowStockOnly) {
+      query += ' AND sl.quantity <= sl.reorder_point';
+    }
+
+    query += ' ORDER BY sl.quantity ASC';
+
+    const result = await pool.query(query, [storeId]);
+
+    res.json({ store_id: storeId, total: result.rows.length, stock: result.rows });
+  } catch (err) {
+    logger.error({ err }, 'store stock query failed');
+    res.status(500).json({ status: 'ERROR', message: 'Store stock query failed' });
+  }
+});
+
+// Webhook management endpoints
+app.use('/webhooks', webhookRouter);
 
 // Admin endpoints (ingestion triggers)
 app.use('/admin', adminRouter);

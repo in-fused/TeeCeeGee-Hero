@@ -6,5 +6,9 @@ export default defineConfig({
     environment: 'node',
     include: ['tests/**/*.test.ts'],
     testTimeout: 10_000,
+    env: {
+      DATABASE_URL:
+        process.env.DATABASE_URL || 'postgresql://test:test@localhost:5432/packfinder_test',
+    },
   },
 });

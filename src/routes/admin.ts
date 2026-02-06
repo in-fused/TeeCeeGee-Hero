@@ -6,6 +6,9 @@ import { logger } from '../lib/logger';
 import { ingestZip } from '../ingest/zip';
 import { ingestStores } from '../ingest/stores';
 import { ingestTcgcsv } from '../ingest/tcgcsv';
+import { ingestPrices } from '../ingest/prices';
+import { PokemonTCGConnector } from '../connectors/pokemon-tcg';
+import { OnePieceTCGConnector } from '../connectors/onepiece-tcg';
 
 const router = Router();
 
@@ -89,11 +92,32 @@ router.post('/ingest/tcgcsv', async (_req: Request, res: Response) => {
   }
 });
 
-// POST /admin/ingest/all — run all three sequentially
+// POST /admin/ingest/prices — sync market prices from external TCG APIs
+router.post('/ingest/prices', async (_req: Request, res: Response) => {
+  try {
+    const pokemonConnector = new PokemonTCGConnector(
+      env.POKEMON_TCG_API_URL,
+      env.POKEMON_TCG_API_KEY,
+      env.TCGDEX_API_URL,
+    );
+    const onePieceConnector = new OnePieceTCGConnector(env.ONEPIECE_TCG_API_URL);
+
+    const result = await ingestPrices(pool, pokemonConnector, onePieceConnector);
+    await updateHealth('price_sync', true);
+    logger.info(result, 'Price sync complete');
+    res.json({ status: 'OK', ...result });
+  } catch (err) {
+    logger.error({ err }, 'Price sync failed');
+    await updateHealth('price_sync', false, String(err));
+    res.status(500).json({ status: 'ERROR', message: String(err) });
+  }
+});
+
+// POST /admin/ingest/all — run all four sequentially
 router.post('/ingest/all', async (req: Request, res: Response) => {
   const results: Record<string, unknown> = {};
 
-  for (const target of ['zip', 'stores', 'tcgcsv']) {
+  for (const target of ['zip', 'stores', 'tcgcsv', 'prices']) {
     try {
       const response = await axios.post(
         `http://localhost:${env.PORT}/admin/ingest/${target}`,

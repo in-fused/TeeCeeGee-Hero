@@ -29,6 +29,10 @@ services:
         fromDatabase:
           name: packfinder-db
           property: connectionString
+      - key: POKEMON_TCG_API_KEY
+        sync: false
+      - key: ADMIN_SECRET
+        sync: false
 
   - type: web
     plan: free

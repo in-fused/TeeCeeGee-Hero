@@ -84,3 +84,56 @@ describe('Migration 002 - product image_url', () => {
     expect(migration002).toContain('products');
   });
 });
+
+describe('Migration 003 - price tracking and webhooks', () => {
+  const migration003 = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'db', 'migrations', '003_price_tracking_and_webhooks.sql'),
+    'utf8',
+  );
+
+  it('should create price_history table', () => {
+    expect(migration003).toContain('CREATE TABLE IF NOT EXISTS price_history');
+  });
+
+  it('should create webhook_subscriptions table', () => {
+    expect(migration003).toContain('CREATE TABLE IF NOT EXISTS webhook_subscriptions');
+  });
+
+  it('should create webhook_deliveries table', () => {
+    expect(migration003).toContain('CREATE TABLE IF NOT EXISTS webhook_deliveries');
+  });
+
+  it('should create stock_levels table', () => {
+    expect(migration003).toContain('CREATE TABLE IF NOT EXISTS stock_levels');
+  });
+
+  it('should create receiving_events table', () => {
+    expect(migration003).toContain('CREATE TABLE IF NOT EXISTS receiving_events');
+  });
+
+  it('should create receiving_items table', () => {
+    expect(migration003).toContain('CREATE TABLE IF NOT EXISTS receiving_items');
+  });
+
+  it('should add market_price column to products', () => {
+    expect(migration003).toContain('market_price');
+    expect(migration003).toContain('price_updated_at');
+  });
+
+  it('should have unique constraint on stock_levels product+store', () => {
+    expect(migration003).toContain('UNIQUE(product_id, store_id)');
+  });
+
+  it('should reference products and stores with foreign keys', () => {
+    expect(migration003).toContain('REFERENCES products(id)');
+    expect(migration003).toContain('REFERENCES stores(id)');
+    expect(migration003).toContain('REFERENCES shipments(id)');
+  });
+
+  it('should create indexes for query performance', () => {
+    expect(migration003).toContain('idx_price_history_product');
+    expect(migration003).toContain('idx_price_history_observed');
+    expect(migration003).toContain('idx_webhook_subs_active');
+    expect(migration003).toContain('idx_stock_levels_store');
+  });
+});
