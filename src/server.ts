@@ -7,6 +7,9 @@ import { pool, healthCheck, hasPostGIS, shutdown } from './lib/db';
 import { logger } from './lib/logger';
 import { adminRouter } from './routes/admin';
 import { webhookRouter } from './routes/webhooks';
+import { scraperRouter } from './routes/scraper';
+import { replenishmentRouter } from './routes/replenishment';
+import { initializeScrapers } from './retailers';
 
 const app = express();
 
@@ -502,6 +505,13 @@ app.use('/webhooks', webhookRouter);
 
 // Admin endpoints (ingestion triggers)
 app.use('/admin', adminRouter);
+
+// Scraper + replenishment endpoints (admin-gated)
+app.use('/admin/scraper', scraperRouter);
+app.use('/admin/replenishment', replenishmentRouter);
+
+// Initialize scraper registry
+initializeScrapers();
 
 // 404 handler
 app.use((_req: Request, res: Response) => {
