@@ -1,11 +1,13 @@
 /**
  * Generic HTML scraper for retailers without APIs.
  * Uses Cheerio for HTML parsing — configurable via CSS selectors.
+ * Supports Playwright browser rendering for JS-heavy sites.
  */
 
 import * as cheerio from 'cheerio';
 import { BaseRetailerScraper, ScrapeResult } from './base';
 import { logger } from '../lib/logger';
+import { BrowserPool } from '../scraper/browser';
 import type { ScrapedListing, ScraperGameType } from '../types/scraper';
 
 export interface GenericScraperConfig {
@@ -40,14 +42,23 @@ export class GenericRetailerScraper extends BaseRetailerScraper {
   }
 
   async scrapeProduct(url: string): Promise<ScrapeResult> {
-    if (this.genericConfig.needsBrowser) {
-      return { listing: null, success: false, error: `${this.config.name} requires browser automation` };
-    }
     try {
-      const resp = await this.client.get<string>(url, {
-        headers: { Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
-      });
-      const $ = cheerio.load(resp.data);
+      let html: string;
+
+      if (this.genericConfig.needsBrowser) {
+        const rendered = await this.renderWithBrowser(url);
+        if (!rendered) {
+          return { listing: null, success: false, error: `${this.config.name} requires browser automation (Playwright unavailable)` };
+        }
+        html = rendered;
+      } else {
+        const resp = await this.client.get<string>(url, {
+          headers: { Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
+        });
+        html = resp.data;
+      }
+
+      const $ = cheerio.load(html);
       const { selectors } = this.genericConfig;
 
       const name = $(selectors.productName).first().text().trim();
@@ -88,21 +99,29 @@ export class GenericRetailerScraper extends BaseRetailerScraper {
     const { page = 1, inStock } = options;
     const listings: ScrapedListing[] = [];
 
-    if (this.genericConfig.needsBrowser) {
-      logger.debug(
-        { retailer: this.config.name },
-        'Skipping search — site requires browser automation (Playwright)',
-      );
-      return listings;
-    }
-
     try {
       const searchUrl = this.genericConfig.searchUrlTemplate
         .replace('{query}', encodeURIComponent(query))
         .replace('{page}', String(page));
 
-      const resp = await this.client.get<string>(searchUrl);
-      const $ = cheerio.load(resp.data);
+      let html: string;
+
+      if (this.genericConfig.needsBrowser) {
+        const rendered = await this.renderWithBrowser(searchUrl);
+        if (!rendered) {
+          logger.debug(
+            { retailer: this.config.name },
+            'Skipping search — Playwright unavailable for browser-required site',
+          );
+          return listings;
+        }
+        html = rendered;
+      } else {
+        const resp = await this.client.get<string>(searchUrl);
+        html = resp.data;
+      }
+
+      const $ = cheerio.load(html);
       const { selectors } = this.genericConfig;
       const productSelector = selectors.productGrid || '.product';
 
@@ -166,6 +185,37 @@ export class GenericRetailerScraper extends BaseRetailerScraper {
       if (hasMore) await new Promise((r) => setTimeout(r, this.config.rateLimitMs));
     }
     return listings;
+  }
+
+  /**
+   * Render a URL using Playwright's headless browser.
+   * Returns the fully-rendered HTML or null if Playwright is unavailable.
+   */
+  private async renderWithBrowser(url: string): Promise<string | null> {
+    const pool = BrowserPool.getInstance();
+    const { selectors } = this.genericConfig;
+
+    const result = await pool.getRenderedHtml(url, {
+      waitSelector: selectors.productGrid,
+      timeout: 30_000,
+      waitUntil: 'domcontentloaded',
+      blockAssets: true,
+    });
+
+    if (!result) return null;
+
+    // Detect bot blocks — common patterns across retailers
+    const lowerHtml = result.html.toLowerCase();
+    if (
+      lowerHtml.includes('captcha') ||
+      lowerHtml.includes('robot') ||
+      lowerHtml.includes('access denied') ||
+      lowerHtml.includes('blocked')
+    ) {
+      logger.warn({ retailer: this.config.name, url }, 'Bot detection triggered during browser render');
+    }
+
+    return result.html;
   }
 
   private extractExternalId(url: string): string {

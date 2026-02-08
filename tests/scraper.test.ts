@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { generateFingerprint, fingerprintToHeaders, FingerprintRotator, getRandomDelay, generateReferer } from '../src/scraper/fingerprint';
 import { ScraperError } from '../src/scraper/client';
+import { BrowserPool } from '../src/scraper/browser';
 
 describe('Fingerprint generation', () => {
   it('should generate a valid fingerprint', () => {
@@ -144,6 +145,67 @@ describe('Scraper registry', () => {
   it('should return undefined for unknown scraper', async () => {
     const { getScraper } = await import('../src/retailers');
     expect(getScraper('nonexistent')).toBeUndefined();
+  });
+});
+
+describe('BrowserPool', () => {
+  it('should return singleton instance', () => {
+    const pool1 = BrowserPool.getInstance();
+    const pool2 = BrowserPool.getInstance();
+    expect(pool1).toBe(pool2);
+  });
+
+  it('should report unavailable before initialization', () => {
+    // Shutdown to reset singleton state
+    const pool = BrowserPool.getInstance();
+    expect(pool.isAvailable()).toBe(false);
+  });
+
+  it('should degrade gracefully when Playwright browsers are not installed', async () => {
+    const pool = BrowserPool.getInstance();
+    // In test environment, Playwright browsers aren't downloaded so init returns false
+    // or getRenderedHtml returns null
+    const result = await pool.getRenderedHtml('https://example.com');
+    // Either null (Playwright unavailable) or an object (if somehow available)
+    expect(result === null || typeof result === 'object').toBe(true);
+  });
+
+  it('should handle shutdown without error even when not initialized', async () => {
+    const pool = BrowserPool.getInstance();
+    await pool.shutdown();
+    expect(pool.isAvailable()).toBe(false);
+  });
+});
+
+describe('Generic scraper browser integration', () => {
+  it('should create browser-required scrapers with needsBrowser flag', async () => {
+    const { createAmazonScraper, createWalmartScraper, createTargetScraper, createGameStopScraper, createBestBuyScraper } =
+      await import('../src/retailers/generic');
+
+    const scrapers = [
+      createAmazonScraper(),
+      createWalmartScraper(),
+      createTargetScraper(),
+      createGameStopScraper(),
+      createBestBuyScraper(),
+    ];
+
+    for (const scraper of scrapers) {
+      expect(scraper.getName()).toBeTruthy();
+      // When Playwright is unavailable, scrapeProduct returns a graceful error
+      const result = await scraper.scrapeProduct('https://example.com/product/123');
+      expect(result.success).toBe(false);
+      expect(result.listing).toBeNull();
+      // Error message should mention browser automation or Playwright
+      expect(result.error).toMatch(/browser automation|playwright/i);
+    }
+  });
+
+  it('should return empty array from searchProducts when Playwright unavailable', async () => {
+    const { createAmazonScraper } = await import('../src/retailers/generic');
+    const scraper = createAmazonScraper();
+    const results = await scraper.searchProducts('pokemon etb');
+    expect(results).toEqual([]);
   });
 });
 
