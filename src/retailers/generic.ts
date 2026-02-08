@@ -22,6 +22,8 @@ export interface GenericScraperConfig {
     productLink?: string;
   };
   searchUrlTemplate: string;
+  /** True for JS-rendered sites that need Playwright — skips HTTP scraping */
+  needsBrowser?: boolean;
 }
 
 export class GenericRetailerScraper extends BaseRetailerScraper {
@@ -38,6 +40,9 @@ export class GenericRetailerScraper extends BaseRetailerScraper {
   }
 
   async scrapeProduct(url: string): Promise<ScrapeResult> {
+    if (this.genericConfig.needsBrowser) {
+      return { listing: null, success: false, error: `${this.config.name} requires browser automation` };
+    }
     try {
       const resp = await this.client.get<string>(url, {
         headers: { Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
@@ -82,6 +87,14 @@ export class GenericRetailerScraper extends BaseRetailerScraper {
   ): Promise<ScrapedListing[]> {
     const { page = 1, inStock } = options;
     const listings: ScrapedListing[] = [];
+
+    if (this.genericConfig.needsBrowser) {
+      logger.debug(
+        { retailer: this.config.name },
+        'Skipping search — site requires browser automation (Playwright)',
+      );
+      return listings;
+    }
 
     try {
       const searchUrl = this.genericConfig.searchUrlTemplate
@@ -166,29 +179,16 @@ export class GenericRetailerScraper extends BaseRetailerScraper {
 }
 
 // Pre-configured retailer scrapers
-
-export function createEbayScraper(): GenericRetailerScraper {
-  return new GenericRetailerScraper({
-    name: 'ebay',
-    baseUrl: 'https://www.ebay.com',
-    rateLimitMs: 1500,
-    searchUrlTemplate: 'https://www.ebay.com/sch/i.html?_nkw={query}&_pgn={page}',
-    selectors: {
-      productName: '.s-item__title span, .s-item__title',
-      price: '.s-item__price, .notranslate',
-      availability: '.s-item__hotness, .s-item__stockStatus',
-      image: '.s-item__image-img',
-      productGrid: '.s-item',
-      productLink: '.s-item__link',
-    },
-  });
-}
+// Note: eBay has a dedicated scraper in ./ebay.ts
+// The retailers below use JS rendering — they need Playwright for real data.
+// They are registered so users see them in the dashboard, but skip HTTP scraping.
 
 export function createAmazonScraper(): GenericRetailerScraper {
   return new GenericRetailerScraper({
     name: 'amazon',
     baseUrl: 'https://www.amazon.com',
     rateLimitMs: 2000,
+    needsBrowser: true,
     searchUrlTemplate: 'https://www.amazon.com/s?k={query}&page={page}',
     selectors: {
       productName: 'h2 a span',
@@ -206,6 +206,7 @@ export function createWalmartScraper(): GenericRetailerScraper {
     name: 'walmart',
     baseUrl: 'https://www.walmart.com',
     rateLimitMs: 2000,
+    needsBrowser: true,
     searchUrlTemplate: 'https://www.walmart.com/search?q={query}&page={page}',
     selectors: {
       productName: '[data-automation-id="product-title"]',
@@ -223,6 +224,7 @@ export function createTargetScraper(): GenericRetailerScraper {
     name: 'target',
     baseUrl: 'https://www.target.com',
     rateLimitMs: 2000,
+    needsBrowser: true,
     searchUrlTemplate: 'https://www.target.com/s?searchTerm={query}&page={page}',
     selectors: {
       productName: '[data-test="product-title"]',
@@ -240,6 +242,7 @@ export function createGameStopScraper(): GenericRetailerScraper {
     name: 'gamestop',
     baseUrl: 'https://www.gamestop.com',
     rateLimitMs: 1500,
+    needsBrowser: true,
     searchUrlTemplate: 'https://www.gamestop.com/search/?q={query}&page={page}',
     selectors: {
       productName: '.product-tile__title, .product-name',
@@ -257,6 +260,7 @@ export function createBestBuyScraper(): GenericRetailerScraper {
     name: 'bestbuy',
     baseUrl: 'https://www.bestbuy.com',
     rateLimitMs: 2000,
+    needsBrowser: true,
     searchUrlTemplate: 'https://www.bestbuy.com/site/searchpage.jsp?st={query}&cp={page}',
     selectors: {
       productName: '.sku-title a',

@@ -199,12 +199,36 @@ app.get('/search', async (req: Request, res: Response) => {
       );
     }
 
+    // Include known TCG sealed products with marketplace links
+    let products: unknown[] = [];
+    try {
+      const productResult = await pool.query(
+        `SELECT id, name, game, product_type, image_url, market_price, tcgplayer_id
+         FROM products
+         WHERE product_type IN ('etb', 'booster_box', 'bundle', 'tin', 'collection_box', 'blister')
+         ORDER BY name
+         LIMIT 50`,
+      );
+      products = productResult.rows.map((p: Record<string, unknown>) => ({
+        ...p,
+        links: {
+          tcgplayer: p.tcgplayer_id
+            ? `https://www.tcgplayer.com/product/${p.tcgplayer_id}`
+            : null,
+          ebay_search: `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(String(p.name))}&_sacat=183454`,
+        },
+      }));
+    } catch {
+      // products table may not exist or be empty — continue without
+    }
+
     res.json({
       zip,
       radius,
       center: { latitude, longitude },
       total: stores.rows.length,
       stores: stores.rows,
+      products,
     });
   } catch (err) {
     logger.error({ err }, 'store search failed');

@@ -70,6 +70,18 @@ router.get('/search', async (req, res) => {
       inStock: inStock === 'true',
       limit: parseInt(String(limit), 10),
     });
+
+    // Auto-save results to DB (non-blocking background task)
+    if (results.length > 0) {
+      Promise.all(
+        results.map((listing) =>
+          scraperDb.upsertListing(listing).catch((e) => {
+            logger.debug({ e, name: listing.name }, 'Failed to auto-save listing');
+          }),
+        ),
+      ).catch(() => {});
+    }
+
     res.json({ success: true, data: results, meta: { total: results.length, errors: errors.length ? errors : undefined } });
   } catch (err) {
     logger.error({ err, q }, 'Scraper search failed');

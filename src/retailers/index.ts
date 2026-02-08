@@ -5,8 +5,8 @@
 
 import { BaseRetailerScraper } from './base';
 import { TCGplayerScraper, tcgplayerScraper } from './tcgplayer';
+import { EbayScraper, ebayScraper } from './ebay';
 import {
-  createEbayScraper,
   createAmazonScraper,
   createWalmartScraper,
   createTargetScraper,
@@ -16,14 +16,14 @@ import {
 import { logger } from '../lib/logger';
 import type { ScrapedListing, ScraperGameType } from '../types/scraper';
 
-export { BaseRetailerScraper, TCGplayerScraper };
+export { BaseRetailerScraper, TCGplayerScraper, EbayScraper };
 
 const scraperRegistry = new Map<string, BaseRetailerScraper>();
 
 export function initializeScrapers(): void {
   scraperRegistry.clear();
   scraperRegistry.set('tcgplayer', tcgplayerScraper);
-  scraperRegistry.set('ebay', createEbayScraper());
+  scraperRegistry.set('ebay', ebayScraper);
   scraperRegistry.set('amazon', createAmazonScraper());
   scraperRegistry.set('walmart', createWalmartScraper());
   scraperRegistry.set('target', createTargetScraper());
