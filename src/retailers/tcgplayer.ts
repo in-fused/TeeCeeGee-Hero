@@ -155,9 +155,8 @@ export class TCGplayerScraper extends BaseRetailerScraper {
   // -- private helpers --
 
   private hitToListing(hit: TCGPSearchHit): ScrapedListing {
-    const urlName = hit.productUrlName || hit.productName.replace(/\s+/g, '-').toLowerCase();
-    const lineName = hit.productLineUrlName || 'pokemon';
-    const productUrl = `${this.productBase}/${hit.productId}/${lineName}/${urlName}`;
+    // TCGPlayer is a SPA — /product/{id} always resolves correctly
+    const productUrl = `${this.productBase}/${hit.productId}`;
 
     return this.createListing({
       externalId: String(hit.productId),

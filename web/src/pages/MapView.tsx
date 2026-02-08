@@ -7,7 +7,7 @@ import { PageTransition } from '../components/PageTransition';
 import { SearchInput } from '../components/SearchInput';
 import { StoreCard } from '../components/StoreCard';
 import { Spinner } from '../components/Spinner';
-import { searchStores, getStoreProducts, type Store, type ProductWithSignal } from '../lib/api';
+import { searchStores, getStoreProducts, type Store, type ProductWithSignal, type StoreSearchProduct } from '../lib/api';
 
 // Custom marker icons
 function createIcon(color: string) {
@@ -60,6 +60,7 @@ export function MapView() {
   const [selectedStore, setSelectedStore] = useState<Store | null>(null);
   const [storeProducts, setStoreProducts] = useState<ProductWithSignal[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
+  const [tcgProducts, setTcgProducts] = useState<StoreSearchProduct[]>([]);
   const mapRef = useRef<L.Map | null>(null);
 
   const doSearch = useCallback(async () => {
@@ -74,6 +75,7 @@ export function MapView() {
         store_type: storeType || undefined,
       });
       setStores(result.stores || []);
+      setTcgProducts(result.products || []);
       if (result.center) {
         setCenter({ lat: result.center.latitude, lng: result.center.longitude });
       }
@@ -223,6 +225,58 @@ export function MapView() {
                   ))}
                 </div>
               </>
+            )}
+
+            {/* TCG Products available at these store types */}
+            {!loading && tcgProducts.length > 0 && (
+              <div className="mt-6 pt-4 border-t border-[var(--color-border-subtle)]">
+                <p className="text-[10px] uppercase tracking-wider text-gray-500 font-medium mb-3">
+                  TCG Sealed Products
+                </p>
+                <div className="space-y-2">
+                  {tcgProducts.slice(0, 20).map((p) => (
+                    <div
+                      key={p.id}
+                      className="rounded-lg bg-white/5 p-3 border border-white/5"
+                    >
+                      <div className="flex items-start gap-2">
+                        <div className="min-w-0 flex-1">
+                          <h4 className="text-xs font-medium text-white truncate">{p.name}</h4>
+                          <p className="text-[10px] text-gray-500 mt-0.5 capitalize">
+                            {p.game?.replace('_', ' ')} &middot; {p.product_type?.replace('_', ' ')}
+                            {p.market_price ? ` &middot; ~$${Number(p.market_price).toFixed(2)}` : ''}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2 mt-2">
+                        {p.links.tcgplayer && (
+                          <a
+                            href={p.links.tcgplayer}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex-1 text-center py-1 rounded bg-[#1a7fbb]/30 hover:bg-[#1a7fbb]/50 text-[10px] font-medium text-[#5eb8e8] transition-colors"
+                          >
+                            TCGplayer
+                          </a>
+                        )}
+                        <a
+                          href={p.links.ebay_search}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-1 text-center py-1 rounded bg-[#e53238]/30 hover:bg-[#e53238]/50 text-[10px] font-medium text-[#f5af02] transition-colors"
+                        >
+                          eBay
+                        </a>
+                      </div>
+                    </div>
+                  ))}
+                  {tcgProducts.length > 20 && (
+                    <p className="text-[10px] text-gray-500 text-center pt-1">
+                      +{tcgProducts.length - 20} more products
+                    </p>
+                  )}
+                </div>
+              </div>
             )}
 
             {!loading && stores.length === 0 && center && (

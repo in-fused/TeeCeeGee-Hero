@@ -50,12 +50,27 @@ export interface Store {
   source: string;
 }
 
+export interface StoreSearchProduct {
+  id: number;
+  name: string;
+  game: string;
+  product_type: string;
+  image_url: string | null;
+  market_price: number | null;
+  tcgplayer_id: string | null;
+  links: {
+    tcgplayer: string | null;
+    ebay_search: string;
+  };
+}
+
 export interface StoreSearchResult {
   zip: string;
   radius: number;
   center: { latitude: number; longitude: number };
   total: number;
   stores: Store[];
+  products?: StoreSearchProduct[];
   status?: string;
 }
 

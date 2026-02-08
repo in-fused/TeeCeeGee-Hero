@@ -131,6 +131,7 @@ function StatusPanel() {
 function SearchPanel() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<ScraperListing[]>([]);
+  const [errors, setErrors] = useState<Array<{ retailer: string; error: string }>>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
 
@@ -140,9 +141,11 @@ function SearchPanel() {
     setSearched(true);
     try {
       const data = await scraperSearch(query);
-      setResults(data);
+      setResults(data.results);
+      setErrors(data.errors || []);
     } catch {
       setResults([]);
+      setErrors([]);
     } finally {
       setLoading(false);
     }
@@ -168,7 +171,14 @@ function SearchPanel() {
       </div>
       {loading && <Spinner />}
       {!loading && searched && results.length === 0 && (
-        <p className="text-gray-500 text-sm">No results found</p>
+        <p className="text-gray-500 text-sm">No results found. Currently active sources: TCGplayer, eBay. Other retailers (Amazon, Walmart, Target, GameStop, Best Buy) require browser automation setup.</p>
+      )}
+      {errors.length > 0 && (
+        <div className="mb-3 text-[10px] text-yellow-400/70">
+          {errors.map((e, i) => (
+            <span key={i} className="capitalize">{e.retailer}: {e.error}{i < errors.length - 1 ? ' | ' : ''}</span>
+          ))}
+        </div>
       )}
       {results.length > 0 && (
         <div className="space-y-2 max-h-80 overflow-y-auto">

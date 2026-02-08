@@ -92,9 +92,25 @@ export function scraperStatus(): Promise<ScraperStatusResponse> {
   return scraperRequest('/admin/scraper/status');
 }
 
-export async function scraperSearch(query: string): Promise<ScraperListing[]> {
+export interface ScraperSearchResult {
+  results: ScraperListing[];
+  errors?: Array<{ retailer: string; error: string }>;
+}
+
+export async function scraperSearch(query: string): Promise<ScraperSearchResult> {
   const params = new URLSearchParams({ q: query, limit: '20' });
-  return scraperRequest(`/admin/scraper/search?${params}`);
+  const url = `${API_BASE}/admin/scraper/search?${params}`;
+  const res = await fetch(url, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(import.meta.env.VITE_ADMIN_SECRET
+        ? { Authorization: `Bearer ${import.meta.env.VITE_ADMIN_SECRET}` }
+        : {}),
+    },
+  });
+  if (!res.ok) throw new Error(`Search failed: ${res.status}`);
+  const json = await res.json();
+  return { results: json.data || [], errors: json.meta?.errors };
 }
 
 export async function scraperListings(filters: Record<string, string> = {}): Promise<{
