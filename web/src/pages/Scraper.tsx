@@ -4,15 +4,18 @@ import { PageTransition } from '../components/PageTransition';
 import { Spinner } from '../components/Spinner';
 import {
   scraperStatus,
-  scraperSearch,
   scraperListings,
   scraperJobs,
-  scraperChanges,
   type ScraperStatusResponse,
   type ScraperListing,
   type ScrapingJobResponse,
-  type InventoryChangeResponse,
 } from '../lib/scraper-api';
+import {
+  searchPrices,
+  getPriceChanges,
+  type ScrapedListingResult,
+  type PriceChangeResult,
+} from '../lib/api';
 
 const PASSWORD = 'PackFinder';
 
@@ -140,7 +143,7 @@ const RETAILER_COLORS: Record<string, string> = {
 
 function SearchPanel() {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<ScraperListing[]>([]);
+  const [results, setResults] = useState<ScrapedListingResult[]>([]);
   const [errors, setErrors] = useState<Array<{ retailer: string; error: string }>>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
@@ -150,8 +153,8 @@ function SearchPanel() {
     setLoading(true);
     setSearched(true);
     try {
-      const data = await scraperSearch(query);
-      setResults(data.results);
+      const data = await searchPrices({ q: query, limit: '30' });
+      setResults(data.results || []);
       setErrors(data.errors || []);
     } catch {
       setResults([]);
@@ -210,13 +213,13 @@ function SearchPanel() {
             {results.map((r, i) => (
               <a
                 key={i}
-                href={r.productUrl || r.product_url || '#'}
+                href={r.product_url || '#'}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-3 p-2.5 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border-subtle)] hover:bg-white/5 transition-colors"
               >
-                {(r.imageUrl || r.image_url) && (
-                  <img src={r.imageUrl || r.image_url || ''} alt="" className="w-10 h-10 rounded object-cover shrink-0" />
+                {r.image_url && (
+                  <img src={r.image_url} alt="" className="w-10 h-10 rounded object-cover shrink-0" />
                 )}
                 <div className="flex-1 min-w-0">
                   <p className="text-white text-sm truncate">{r.name}</p>
@@ -325,11 +328,14 @@ function formatChangeValue(val: unknown, changeType: string): string {
 }
 
 function ChangesPanel() {
-  const [changes, setChanges] = useState<InventoryChangeResponse[]>([]);
+  const [changes, setChanges] = useState<PriceChangeResult[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    scraperChanges().then(setChanges).catch(() => {}).finally(() => setLoading(false));
+    getPriceChanges({ limit: '20' })
+      .then((d) => setChanges(d.results || []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   return (

@@ -158,3 +158,38 @@ export function getStoreProducts(storeId: number) {
     `/stores/${storeId}/products`,
   );
 }
+
+// ── Public price endpoints (no admin auth) ──
+
+export interface PriceSearchResult {
+  results: ScrapedListingResult[];
+  source: 'cache' | 'live';
+  total: number;
+  errors?: Array<{ retailer: string; error: string }>;
+}
+
+export interface PriceChangeResult {
+  id: string;
+  change_type: string;
+  old_value: unknown;
+  new_value: unknown;
+  detected_at: string;
+  retailer: string;
+  name: string;
+  game: string;
+  product_url: string;
+  current_price: number;
+  current_status: string;
+}
+
+export function searchPrices(params: { q: string; game?: string; limit?: string }) {
+  return request<PriceSearchResult>('/prices/search', params);
+}
+
+export function getRecentPrices() {
+  return request<{ results: ScrapedListingResult[]; total: number }>('/prices/recent');
+}
+
+export function getPriceChanges(params?: { limit?: string }) {
+  return request<{ results: PriceChangeResult[]; total: number }>('/prices/changes', params);
+}

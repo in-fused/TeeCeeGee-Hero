@@ -7,7 +7,7 @@ import { PageTransition } from '../components/PageTransition';
 import { SearchInput } from '../components/SearchInput';
 import { StoreCard } from '../components/StoreCard';
 import { Spinner } from '../components/Spinner';
-import { searchStores, getStoreProducts, type Store, type ProductWithSignal, type StoreSearchProduct, type ScrapedListingResult } from '../lib/api';
+import { searchStores, getStoreProducts, searchPrices, type Store, type ProductWithSignal, type StoreSearchProduct, type ScrapedListingResult } from '../lib/api';
 
 // Custom marker icons
 function createIcon(color: string) {
@@ -62,6 +62,7 @@ export function MapView() {
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [tcgProducts, setTcgProducts] = useState<StoreSearchProduct[]>([]);
   const [listings, setListings] = useState<ScrapedListingResult[]>([]);
+  const [loadingPrices, setLoadingPrices] = useState(false);
   const mapRef = useRef<L.Map | null>(null);
 
   const doSearch = useCallback(async () => {
@@ -69,6 +70,7 @@ export function MapView() {
     setLoading(true);
     setError('');
     setSelectedStore(null);
+    setListings([]);
     try {
       const result = await searchStores({
         zip,
@@ -77,10 +79,36 @@ export function MapView() {
       });
       setStores(result.stores || []);
       setTcgProducts(result.products || []);
-      setListings(result.listings || []);
+      // Use cached listings from /search if available
+      if (result.listings && result.listings.length > 0) {
+        setListings(result.listings);
+      }
       if (result.center) {
         setCenter({ lat: result.center.latitude, lng: result.center.longitude });
       }
+
+      // Fire off live price searches in background for common TCG products
+      setLoadingPrices(true);
+      const searches = ['pokemon etb', 'pokemon booster box', 'one piece booster box'];
+      Promise.all(
+        searches.map((q) =>
+          searchPrices({ q, limit: '10' }).catch(() => ({ results: [] as ScrapedListingResult[], total: 0 })),
+        ),
+      )
+        .then((responses) => {
+          const all = responses.flatMap((r) => r.results || []);
+          // Deduplicate by product_url
+          const seen = new Set<string>();
+          const unique = all.filter((l) => {
+            if (!l.product_url || seen.has(l.product_url)) return false;
+            seen.add(l.product_url);
+            return true;
+          });
+          if (unique.length > 0) {
+            setListings(unique.sort((a, b) => a.price - b.price));
+          }
+        })
+        .finally(() => setLoadingPrices(false));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Search failed');
       setStores([]);
@@ -227,6 +255,19 @@ export function MapView() {
                   ))}
                 </div>
               </>
+            )}
+
+            {/* Live prices loading indicator */}
+            {!loading && loadingPrices && listings.length === 0 && stores.length > 0 && (
+              <div className="mt-6 pt-4 border-t border-[var(--color-border-subtle)]">
+                <p className="text-[10px] uppercase tracking-wider text-gray-500 font-medium mb-3">
+                  Live Prices &amp; Stock
+                </p>
+                <div className="flex items-center gap-2 py-4">
+                  <Spinner />
+                  <span className="text-xs text-gray-500">Fetching live prices from TCGplayer &amp; eBay...</span>
+                </div>
+              </div>
             )}
 
             {/* Scraped listings with real prices and stock from all retailers */}

@@ -9,7 +9,8 @@ import { adminRouter } from './routes/admin';
 import { webhookRouter } from './routes/webhooks';
 import { scraperRouter } from './routes/scraper';
 import { replenishmentRouter } from './routes/replenishment';
-import { initializeScrapers } from './retailers';
+import { initializeScrapers, searchAllRetailers } from './retailers';
+import * as scraperDb from './db/scraper';
 
 const app = express();
 
@@ -540,6 +541,128 @@ app.get('/stores/:id/stock', async (req: Request, res: Response) => {
   } catch (err) {
     logger.error({ err }, 'store stock query failed');
     res.status(500).json({ status: 'ERROR', message: 'Store stock query failed' });
+  }
+});
+
+// ── Public prices endpoint ──────────────────────────────────────────
+// Live price search across all retailers — no admin auth required.
+// Returns cached results if fresh, otherwise fetches live.
+app.get('/prices/search', async (req: Request, res: Response) => {
+  const q = req.query.q as string;
+  const game = req.query.game as string | undefined;
+  const limit = Math.min(Number(req.query.limit) || 20, 50);
+
+  if (!q || q.length < 2) {
+    res.status(400).json({ error: 'Query param "q" is required (min 2 chars)' });
+    return;
+  }
+
+  try {
+    // 1. Check for recent cached results first (less than 1 hour old)
+    let cached: unknown[] = [];
+    try {
+      const cacheResult = await pool.query(
+        `SELECT id, name, game, product_type, image_url, price, currency, status,
+                retailer, product_url, set_name, condition, quantity, scraped_at
+         FROM scraped_listings
+         WHERE is_active = TRUE
+           AND to_tsvector('english', name || ' ' || COALESCE(set_name, '')) @@ plainto_tsquery('english', $1)
+           AND scraped_at > NOW() - INTERVAL '1 hour'
+         ORDER BY price ASC
+         LIMIT $2`,
+        [q, limit],
+      );
+      cached = cacheResult.rows;
+    } catch {
+      // scraped_listings table may not exist yet — that's ok
+    }
+
+    // 2. If we have enough cached results, return them immediately
+    if (cached.length >= 3) {
+      res.json({ results: cached, source: 'cache', total: cached.length });
+      return;
+    }
+
+    // 3. No cache — do a live search across TCGPlayer + eBay (fast retailers)
+    const { results, errors } = await searchAllRetailers(q, game as any, {
+      retailers: ['tcgplayer', 'ebay'],
+      limit,
+    });
+
+    // 4. Save results to DB in background (for future cache hits + changes tracking)
+    if (results.length > 0) {
+      Promise.all(
+        results.map((listing) =>
+          scraperDb.upsertListing(listing).catch((e) => {
+            logger.debug({ e, name: listing.name }, 'Failed to cache listing');
+          }),
+        ),
+      ).catch(() => {});
+    }
+
+    // 5. Normalize to snake_case for frontend consistency
+    const normalized = results.map((r) => ({
+      id: r.id || null,
+      name: r.name,
+      game: r.game,
+      product_type: r.productType,
+      image_url: r.imageUrl || null,
+      price: r.price,
+      currency: r.currency,
+      status: r.status,
+      retailer: r.retailer,
+      product_url: r.productUrl,
+      set_name: r.setName || null,
+      condition: r.condition,
+      quantity: r.quantity || null,
+      scraped_at: r.scrapedAt?.toISOString() || new Date().toISOString(),
+    }));
+
+    res.json({
+      results: normalized,
+      source: 'live',
+      total: normalized.length,
+      errors: errors.length ? errors : undefined,
+    });
+  } catch (err) {
+    logger.error({ err, q }, 'Price search failed');
+    res.status(500).json({ error: 'Price search failed' });
+  }
+});
+
+// Public cached listings endpoint — returns recently scraped data
+app.get('/prices/recent', async (_req: Request, res: Response) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, name, game, product_type, image_url, price, currency, status,
+              retailer, product_url, set_name, condition, quantity, scraped_at
+       FROM scraped_listings
+       WHERE is_active = TRUE AND price > 0
+       ORDER BY scraped_at DESC
+       LIMIT 50`,
+    );
+    res.json({ results: result.rows, total: result.rows.length });
+  } catch {
+    res.json({ results: [], total: 0 });
+  }
+});
+
+// Public recent changes endpoint — price drops, restocks visible to everyone
+app.get('/prices/changes', async (req: Request, res: Response) => {
+  const limit = Math.min(Number(req.query.limit) || 20, 50);
+  try {
+    const result = await pool.query(
+      `SELECT c.id, c.change_type, c.old_value, c.new_value, c.detected_at, c.retailer,
+              l.name, l.game, l.product_url, l.price as current_price, l.status as current_status
+       FROM inventory_changes c
+       JOIN scraped_listings l ON c.listing_id = l.id
+       ORDER BY c.detected_at DESC
+       LIMIT $1`,
+      [limit],
+    );
+    res.json({ results: result.rows, total: result.rows.length });
+  } catch {
+    res.json({ results: [], total: 0 });
   }
 });
 
