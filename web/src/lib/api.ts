@@ -64,6 +64,23 @@ export interface StoreSearchProduct {
   };
 }
 
+export interface ScrapedListingResult {
+  id: string;
+  name: string;
+  game: string;
+  product_type: string;
+  image_url: string | null;
+  price: number;
+  currency: string;
+  status: string;
+  retailer: string;
+  product_url: string;
+  set_name: string | null;
+  condition: string;
+  quantity: number | null;
+  scraped_at: string;
+}
+
 export interface StoreSearchResult {
   zip: string;
   radius: number;
@@ -71,6 +88,7 @@ export interface StoreSearchResult {
   total: number;
   stores: Store[];
   products?: StoreSearchProduct[];
+  listings?: ScrapedListingResult[];
   status?: string;
 }
 

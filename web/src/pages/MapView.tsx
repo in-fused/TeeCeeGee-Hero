@@ -7,7 +7,7 @@ import { PageTransition } from '../components/PageTransition';
 import { SearchInput } from '../components/SearchInput';
 import { StoreCard } from '../components/StoreCard';
 import { Spinner } from '../components/Spinner';
-import { searchStores, getStoreProducts, type Store, type ProductWithSignal, type StoreSearchProduct } from '../lib/api';
+import { searchStores, getStoreProducts, type Store, type ProductWithSignal, type StoreSearchProduct, type ScrapedListingResult } from '../lib/api';
 
 // Custom marker icons
 function createIcon(color: string) {
@@ -61,6 +61,7 @@ export function MapView() {
   const [storeProducts, setStoreProducts] = useState<ProductWithSignal[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [tcgProducts, setTcgProducts] = useState<StoreSearchProduct[]>([]);
+  const [listings, setListings] = useState<ScrapedListingResult[]>([]);
   const mapRef = useRef<L.Map | null>(null);
 
   const doSearch = useCallback(async () => {
@@ -76,6 +77,7 @@ export function MapView() {
       });
       setStores(result.stores || []);
       setTcgProducts(result.products || []);
+      setListings(result.listings || []);
       if (result.center) {
         setCenter({ lat: result.center.latitude, lng: result.center.longitude });
       }
@@ -227,11 +229,58 @@ export function MapView() {
               </>
             )}
 
-            {/* TCG Products available at these store types */}
+            {/* Scraped listings with real prices and stock from all retailers */}
+            {!loading && listings.length > 0 && (
+              <div className="mt-6 pt-4 border-t border-[var(--color-border-subtle)]">
+                <p className="text-[10px] uppercase tracking-wider text-gray-500 font-medium mb-3">
+                  Live Prices &amp; Stock
+                </p>
+                <div className="space-y-2">
+                  {listings.slice(0, 30).map((l) => (
+                    <a
+                      key={l.id}
+                      href={l.product_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block rounded-lg bg-white/5 p-3 border border-white/5 hover:bg-white/10 transition-colors"
+                    >
+                      <div className="flex items-start gap-2">
+                        {l.image_url && (
+                          <img src={l.image_url} alt="" className="w-10 h-10 rounded object-cover shrink-0" />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <h4 className="text-xs font-medium text-white truncate">{l.name}</h4>
+                          <p className="text-[10px] text-gray-500 mt-0.5 capitalize">
+                            {l.retailer} &middot; {l.game?.replace('_', ' ')} &middot; {l.product_type?.replace('_', ' ')}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-sm font-semibold text-white">${Number(l.price).toFixed(2)}</p>
+                          <span className={`inline-block mt-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-full ${
+                            l.status === 'in_stock' ? 'bg-green-500/20 text-green-300' :
+                            l.status === 'preorder' ? 'bg-blue-500/20 text-blue-300' :
+                            'bg-gray-500/20 text-gray-400'
+                          }`}>
+                            {l.status.replace('_', ' ')}
+                          </span>
+                        </div>
+                      </div>
+                    </a>
+                  ))}
+                  {listings.length > 30 && (
+                    <p className="text-[10px] text-gray-500 text-center pt-1">
+                      +{listings.length - 30} more listings
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* TCG catalog products with marketplace links */}
             {!loading && tcgProducts.length > 0 && (
               <div className="mt-6 pt-4 border-t border-[var(--color-border-subtle)]">
                 <p className="text-[10px] uppercase tracking-wider text-gray-500 font-medium mb-3">
-                  TCG Sealed Products
+                  TCG Catalog
                 </p>
                 <div className="space-y-2">
                   {tcgProducts.slice(0, 20).map((p) => (

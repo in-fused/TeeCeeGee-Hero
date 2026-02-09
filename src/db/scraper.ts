@@ -158,7 +158,7 @@ export async function getRecentChanges(options: {
 
   const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
   const result = await pool.query(
-    `SELECT c.*, l.name, l.game, l.set_name
+    `SELECT c.*, l.name, l.game, l.set_name, l.product_url, l.price as current_price, l.status as current_status
      FROM inventory_changes c
      JOIN scraped_listings l ON c.listing_id = l.id
      ${where}

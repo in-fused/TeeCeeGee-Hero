@@ -222,6 +222,24 @@ app.get('/search', async (req: Request, res: Response) => {
       // products table may not exist or be empty — continue without
     }
 
+    // Include scraped listings with real prices and stock from all retailers
+    let listings: unknown[] = [];
+    try {
+      const listingResult = await pool.query(
+        `SELECT id, name, game, product_type, image_url, price, currency, status,
+                retailer, product_url, set_name, condition, quantity, scraped_at
+         FROM scraped_listings
+         WHERE is_active = TRUE
+           AND product_type IN ('etb', 'booster_box', 'bundle', 'tin', 'collection_box', 'blister', 'booster_pack')
+           AND price > 0
+         ORDER BY scraped_at DESC
+         LIMIT 60`,
+      );
+      listings = listingResult.rows;
+    } catch {
+      // scraped_listings table may not exist — continue without
+    }
+
     res.json({
       zip,
       radius,
@@ -229,6 +247,7 @@ app.get('/search', async (req: Request, res: Response) => {
       total: stores.rows.length,
       stores: stores.rows,
       products,
+      listings,
     });
   } catch (err) {
     logger.error({ err }, 'store search failed');

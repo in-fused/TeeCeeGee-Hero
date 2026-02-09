@@ -86,6 +86,9 @@ export interface InventoryChangeResponse {
   detected_at: string;
   name?: string;
   game?: string;
+  product_url?: string;
+  current_price?: number;
+  current_status?: string;
 }
 
 export function scraperStatus(): Promise<ScraperStatusResponse> {

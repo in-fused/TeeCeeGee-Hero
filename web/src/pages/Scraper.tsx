@@ -128,6 +128,16 @@ function StatusPanel() {
   );
 }
 
+const RETAILER_COLORS: Record<string, string> = {
+  tcgplayer: 'bg-[#1a7fbb]/30 text-[#5eb8e8]',
+  ebay: 'bg-[#e53238]/30 text-[#f5af02]',
+  amazon: 'bg-[#ff9900]/20 text-[#ff9900]',
+  walmart: 'bg-[#0071dc]/20 text-[#74b9ff]',
+  target: 'bg-[#cc0000]/20 text-[#ff6666]',
+  gamestop: 'bg-[#e21e25]/20 text-[#ff7777]',
+  bestbuy: 'bg-[#0046be]/20 text-[#6db3f2]',
+};
+
 function SearchPanel() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<ScraperListing[]>([]);
@@ -151,6 +161,12 @@ function SearchPanel() {
     }
   }, [query]);
 
+  // Group results by retailer for the summary
+  const retailerCounts = results.reduce<Record<string, number>>((acc, r) => {
+    acc[r.retailer] = (acc[r.retailer] || 0) + 1;
+    return acc;
+  }, {});
+
   return (
     <Card title="Live Search (across retailers)">
       <div className="flex gap-2 mb-4">
@@ -171,7 +187,7 @@ function SearchPanel() {
       </div>
       {loading && <Spinner />}
       {!loading && searched && results.length === 0 && (
-        <p className="text-gray-500 text-sm">No results found. Currently active sources: TCGplayer, eBay. Other retailers (Amazon, Walmart, Target, GameStop, Best Buy) require browser automation setup.</p>
+        <p className="text-gray-500 text-sm">No results found. Try a different search term.</p>
       )}
       {errors.length > 0 && (
         <div className="mb-3 text-[10px] text-yellow-400/70">
@@ -181,27 +197,50 @@ function SearchPanel() {
         </div>
       )}
       {results.length > 0 && (
-        <div className="space-y-2 max-h-80 overflow-y-auto">
-          {results.map((r, i) => (
-            <div key={i} className="flex items-center gap-3 p-2 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border-subtle)]">
-              {r.imageUrl && (
-                <img src={r.imageUrl} alt="" className="w-10 h-10 rounded object-cover" />
-              )}
-              <div className="flex-1 min-w-0">
-                <p className="text-white text-sm truncate">{r.name}</p>
-                <p className="text-gray-500 text-xs capitalize">{r.retailer} &middot; {r.game} &middot; {r.status.replace('_', ' ')}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-white text-sm font-medium">${r.price.toFixed(2)}</p>
-                {r.productUrl && (
-                  <a href={r.productUrl} target="_blank" rel="noopener noreferrer" className="text-brand-400 text-xs hover:underline">
-                    View
-                  </a>
+        <>
+          {/* Retailer breakdown summary */}
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            {Object.entries(retailerCounts).map(([retailer, count]) => (
+              <span key={retailer} className={`text-[10px] font-medium px-2 py-0.5 rounded-full capitalize ${RETAILER_COLORS[retailer] || 'bg-gray-800 text-gray-400'}`}>
+                {retailer}: {count}
+              </span>
+            ))}
+          </div>
+          <div className="space-y-2 max-h-96 overflow-y-auto">
+            {results.map((r, i) => (
+              <a
+                key={i}
+                href={r.productUrl || r.product_url || '#'}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-3 p-2.5 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border-subtle)] hover:bg-white/5 transition-colors"
+              >
+                {(r.imageUrl || r.image_url) && (
+                  <img src={r.imageUrl || r.image_url || ''} alt="" className="w-10 h-10 rounded object-cover shrink-0" />
                 )}
-              </div>
-            </div>
-          ))}
-        </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-white text-sm truncate">{r.name}</p>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full capitalize ${RETAILER_COLORS[r.retailer] || 'bg-gray-800 text-gray-400'}`}>
+                      {r.retailer}
+                    </span>
+                    <span className="text-gray-600 text-[10px] capitalize">{r.game?.replace('_', ' ')}</span>
+                    <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full ${
+                      r.status === 'in_stock' ? 'bg-green-500/20 text-green-300' :
+                      r.status === 'preorder' ? 'bg-blue-500/20 text-blue-300' :
+                      'bg-gray-500/20 text-gray-400'
+                    }`}>
+                      {r.status.replace('_', ' ')}
+                    </span>
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-white text-sm font-semibold">${Number(r.price).toFixed(2)}</p>
+                </div>
+              </a>
+            ))}
+          </div>
+        </>
       )}
     </Card>
   );
@@ -278,6 +317,13 @@ function JobsPanel() {
   );
 }
 
+function formatChangeValue(val: unknown, changeType: string): string {
+  if (val === null || val === undefined) return '—';
+  if (changeType === 'price_change' && typeof val === 'number') return `$${val.toFixed(2)}`;
+  if (typeof val === 'string') return val.replace(/_/g, ' ');
+  return String(val);
+}
+
 function ChangesPanel() {
   const [changes, setChanges] = useState<InventoryChangeResponse[]>([]);
   const [loading, setLoading] = useState(true);
@@ -291,24 +337,50 @@ function ChangesPanel() {
       {loading ? <Spinner /> : changes.length === 0 ? (
         <p className="text-gray-500 text-sm">No recent changes detected</p>
       ) : (
-        <div className="space-y-2 max-h-80 overflow-y-auto">
-          {changes.map((c) => (
-            <div key={c.id} className="p-2 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border-subtle)]">
-              <div className="flex justify-between items-center">
-                <p className="text-white text-sm truncate">{c.name}</p>
-                <span className={`text-xs px-2 py-0.5 rounded-full ${
-                  c.change_type === 'price_change' ? 'bg-yellow-900/50 text-yellow-400' :
-                  c.change_type === 'status_change' ? 'bg-purple-900/50 text-purple-400' :
-                  'bg-cyan-900/50 text-cyan-400'
-                }`}>
-                  {c.change_type.replace('_', ' ')}
-                </span>
+        <div className="space-y-2 max-h-96 overflow-y-auto">
+          {changes.map((c) => {
+            const content = (
+              <>
+                <div className="flex justify-between items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-white text-sm truncate">{c.name}</p>
+                    <p className="text-gray-500 text-[10px] mt-0.5 capitalize">{c.retailer}</p>
+                  </div>
+                  <span className={`shrink-0 text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                    c.change_type === 'price_change' ? 'bg-yellow-900/50 text-yellow-400' :
+                    c.change_type === 'status_change' ? 'bg-purple-900/50 text-purple-400' :
+                    c.change_type === 'stock_change' ? 'bg-cyan-900/50 text-cyan-400' :
+                    c.change_type === 'new_listing' ? 'bg-green-900/50 text-green-400' :
+                    'bg-gray-800 text-gray-400'
+                  }`}>
+                    {c.change_type.replace(/_/g, ' ')}
+                  </span>
+                </div>
+                {(c.old_value !== null || c.new_value !== null) && (
+                  <div className="mt-1.5 flex items-center gap-1.5 text-xs">
+                    <span className="text-red-400/80">{formatChangeValue(c.old_value, c.change_type)}</span>
+                    <span className="text-gray-600">&rarr;</span>
+                    <span className="text-green-400/80">{formatChangeValue(c.new_value, c.change_type)}</span>
+                  </div>
+                )}
+                <p className="text-gray-600 text-[10px] mt-1">
+                  {new Date(c.detected_at).toLocaleString()}
+                </p>
+              </>
+            );
+
+            const cls = `block p-3 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border-subtle)] ${c.product_url ? 'hover:bg-white/5 transition-colors cursor-pointer' : ''}`;
+
+            return c.product_url ? (
+              <a key={c.id} href={c.product_url} target="_blank" rel="noopener noreferrer" className={cls}>
+                {content}
+              </a>
+            ) : (
+              <div key={c.id} className={cls}>
+                {content}
               </div>
-              <p className="text-gray-500 text-xs mt-1">
-                {c.retailer} &middot; {new Date(c.detected_at).toLocaleString()}
-              </p>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </Card>
