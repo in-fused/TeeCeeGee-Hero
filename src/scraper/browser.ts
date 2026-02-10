@@ -5,6 +5,12 @@
  * Playwright is dynamically imported — if not installed or browsers
  * not downloaded, all methods degrade gracefully.
  *
+ * Browser discovery order:
+ *   1. Default Playwright-managed Chromium (exact version match)
+ *   2. Any compatible Chromium in the Playwright cache
+ *   3. Runtime install attempt (npx playwright install chromium)
+ *   4. Graceful degradation — HTTP-only scrapers still work
+ *
  * Usage:
  *   const pool = BrowserPool.getInstance();
  *   const html = await pool.getRenderedHtml(url, { waitSelector: '.products' });
@@ -12,6 +18,9 @@
  *   await pool.shutdown();
  */
 
+import { existsSync, readdirSync } from 'fs';
+import { join } from 'path';
+import { execSync } from 'child_process';
 import { logger } from '../lib/logger';
 import { generateFingerprint, fingerprintToHeaders, getRandomDelay } from './fingerprint';
 
@@ -44,6 +53,12 @@ export interface RenderedPage {
 type PlaywrightModule = typeof import('playwright');
 type Browser = import('playwright').Browser;
 type BrowserContext = import('playwright').BrowserContext;
+
+/** Common Playwright cache directories */
+const CACHE_DIRS = [
+  join(process.env.HOME || '/root', '.cache', 'ms-playwright'),
+  '/tmp/ms-playwright',
+];
 
 export class BrowserPool {
   private static instance: BrowserPool | null = null;
@@ -79,26 +94,148 @@ export class BrowserPool {
     try {
       // Dynamic import — keeps Playwright fully optional
       this.pw = await (Function('return import("playwright")')() as Promise<PlaywrightModule>);
-      this.browser = await this.pw.chromium.launch({
-        headless: true,
-        args: [
-          '--disable-blink-features=AutomationControlled',
-          '--disable-dev-shm-usage',
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-accelerated-2d-canvas',
-          '--disable-gpu',
-        ],
-      });
 
-      this.available = true;
-      logger.info('Playwright browser pool initialized');
-      return true;
+      const launchArgs = [
+        '--disable-blink-features=AutomationControlled',
+        '--disable-dev-shm-usage',
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-accelerated-2d-canvas',
+        '--disable-gpu',
+      ];
+
+      // Strategy 1: Try default Playwright-managed binary
+      try {
+        this.browser = await this.pw.chromium.launch({ headless: true, args: launchArgs });
+        this.available = true;
+        logger.info('Playwright browser pool initialized (default binary)');
+        return true;
+      } catch (defaultErr) {
+        logger.debug(
+          { error: defaultErr instanceof Error ? defaultErr.message : String(defaultErr) },
+          'Default Chromium binary not found — scanning for alternatives',
+        );
+      }
+
+      // Strategy 2: Scan for any available Chromium in the cache
+      const execPath = this.findCachedChromium();
+      if (execPath) {
+        try {
+          this.browser = await this.pw.chromium.launch({
+            headless: true,
+            executablePath: execPath,
+            args: launchArgs,
+          });
+          this.available = true;
+          logger.info({ executablePath: execPath }, 'Playwright browser pool initialized (cached binary)');
+          return true;
+        } catch (cachedErr) {
+          logger.debug(
+            { error: cachedErr instanceof Error ? cachedErr.message : String(cachedErr) },
+            'Cached Chromium binary failed to launch',
+          );
+        }
+      }
+
+      // Strategy 3: Try runtime install
+      const installed = this.tryRuntimeInstall();
+      if (installed) {
+        try {
+          this.browser = await this.pw.chromium.launch({ headless: true, args: launchArgs });
+          this.available = true;
+          logger.info('Playwright browser pool initialized (runtime install)');
+          return true;
+        } catch (installErr) {
+          logger.warn(
+            { error: installErr instanceof Error ? installErr.message : String(installErr) },
+            'Runtime-installed Chromium failed to launch',
+          );
+        }
+
+        // Try scanning cache again after install (might be a different path)
+        const newPath = this.findCachedChromium();
+        if (newPath) {
+          try {
+            this.browser = await this.pw.chromium.launch({
+              headless: true,
+              executablePath: newPath,
+              args: launchArgs,
+            });
+            this.available = true;
+            logger.info({ executablePath: newPath }, 'Playwright browser pool initialized (post-install scan)');
+            return true;
+          } catch {
+            // All strategies exhausted
+          }
+        }
+      }
+
+      this.available = false;
+      logger.warn('Playwright unavailable — no compatible Chromium binary found');
+      return false;
     } catch (err) {
       this.available = false;
       logger.warn(
         { error: err instanceof Error ? err.message : String(err) },
         'Playwright unavailable — browser scrapers will be skipped',
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Scan Playwright cache directories for any chromium binary.
+   * Returns the executable path, or null if none found.
+   */
+  private findCachedChromium(): string | null {
+    for (const cacheDir of CACHE_DIRS) {
+      if (!existsSync(cacheDir)) continue;
+
+      try {
+        const entries = readdirSync(cacheDir)
+          .filter((d) => d.startsWith('chromium-') && !d.includes('headless_shell'))
+          .sort()
+          .reverse(); // Newest version first
+
+        for (const entry of entries) {
+          // Linux path
+          const linuxPath = join(cacheDir, entry, 'chrome-linux', 'chrome');
+          if (existsSync(linuxPath)) {
+            logger.debug({ path: linuxPath, version: entry }, 'Found cached Chromium');
+            return linuxPath;
+          }
+          // macOS path
+          const macPath = join(cacheDir, entry, 'chrome-mac', 'Chromium.app', 'Contents', 'MacOS', 'Chromium');
+          if (existsSync(macPath)) {
+            logger.debug({ path: macPath, version: entry }, 'Found cached Chromium');
+            return macPath;
+          }
+        }
+      } catch {
+        // Can't read directory — skip
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Attempt to install Chromium at runtime via `npx playwright install chromium`.
+   * Returns true if the install command succeeds.
+   */
+  private tryRuntimeInstall(): boolean {
+    try {
+      logger.info('Attempting runtime Chromium install...');
+      execSync('npx playwright install chromium', {
+        timeout: 120_000,
+        stdio: 'pipe',
+        env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: '0' }, // Use default cache location
+      });
+      logger.info('Runtime Chromium install succeeded');
+      return true;
+    } catch (err) {
+      logger.warn(
+        { error: err instanceof Error ? err.message : 'install failed' },
+        'Runtime Chromium install failed — browser scrapers unavailable',
       );
       return false;
     }

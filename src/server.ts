@@ -10,6 +10,7 @@ import { webhookRouter } from './routes/webhooks';
 import { scraperRouter } from './routes/scraper';
 import { replenishmentRouter } from './routes/replenishment';
 import { initializeScrapers, searchAllRetailers } from './retailers';
+import { BrowserPool } from './scraper/browser';
 import * as scraperDb from './db/scraper';
 
 const app = express();
@@ -713,6 +714,12 @@ app.use('/admin/replenishment', replenishmentRouter);
 
 // Initialize scraper registry
 initializeScrapers();
+
+// Eagerly initialize browser pool in background — don't block server startup
+BrowserPool.getInstance().init().then((ok) => {
+  if (ok) logger.info('Browser pool ready — Playwright scrapers active');
+  else logger.info('Browser pool not available — HTTP-only scrapers active');
+}).catch(() => {});
 
 // 404 handler
 app.use((_req: Request, res: Response) => {
