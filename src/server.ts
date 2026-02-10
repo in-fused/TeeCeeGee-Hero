@@ -647,6 +647,32 @@ app.get('/prices/recent', async (_req: Request, res: Response) => {
   }
 });
 
+// Public stats endpoint — listing counts + retailer breakdown, no admin auth
+app.get('/prices/stats', async (_req: Request, res: Response) => {
+  try {
+    const [total, active, byRetailer, changes] = await Promise.all([
+      pool.query('SELECT COUNT(*)::int as count FROM scraped_listings'),
+      pool.query('SELECT COUNT(*)::int as count FROM scraped_listings WHERE is_active = TRUE'),
+      pool.query(
+        `SELECT retailer, COUNT(*)::int as count
+         FROM scraped_listings WHERE is_active = TRUE
+         GROUP BY retailer ORDER BY count DESC`,
+      ),
+      pool.query(
+        "SELECT COUNT(*)::int as count FROM inventory_changes WHERE detected_at > NOW() - INTERVAL '24 hours'",
+      ),
+    ]);
+    res.json({
+      totalListings: total.rows[0].count,
+      activeListings: active.rows[0].count,
+      byRetailer: byRetailer.rows,
+      recentChanges: changes.rows[0].count,
+    });
+  } catch {
+    res.json({ totalListings: 0, activeListings: 0, byRetailer: [], recentChanges: 0 });
+  }
+});
+
 // Public recent changes endpoint — price drops, restocks visible to everyone
 app.get('/prices/changes', async (req: Request, res: Response) => {
   const limit = Math.min(Number(req.query.limit) || 20, 50);

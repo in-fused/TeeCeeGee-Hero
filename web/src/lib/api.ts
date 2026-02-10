@@ -182,6 +182,13 @@ export interface PriceChangeResult {
   current_status: string;
 }
 
+export interface PriceStats {
+  totalListings: number;
+  activeListings: number;
+  byRetailer: Array<{ retailer: string; count: number }>;
+  recentChanges: number;
+}
+
 export function searchPrices(params: { q: string; game?: string; limit?: string }) {
   return request<PriceSearchResult>('/prices/search', params);
 }
@@ -192,4 +199,8 @@ export function getRecentPrices() {
 
 export function getPriceChanges(params?: { limit?: string }) {
   return request<{ results: PriceChangeResult[]; total: number }>('/prices/changes', params);
+}
+
+export function getPriceStats() {
+  return request<PriceStats>('/prices/stats');
 }

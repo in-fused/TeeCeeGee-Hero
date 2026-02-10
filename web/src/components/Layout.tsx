@@ -6,7 +6,7 @@ const navItems = [
   { to: '/', label: 'Home' },
   { to: '/search', label: 'Products' },
   { to: '/map', label: 'Store Map' },
-  { to: '/scraper', label: 'Scraper' },
+  { to: '/scraper', label: 'Prices' },
 ];
 
 export function Layout({ children }: { children: ReactNode }) {
