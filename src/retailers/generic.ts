@@ -109,11 +109,7 @@ export class GenericRetailerScraper extends BaseRetailerScraper {
       if (this.genericConfig.needsBrowser) {
         const rendered = await this.renderWithBrowser(searchUrl);
         if (!rendered) {
-          logger.debug(
-            { retailer: this.config.name },
-            'Skipping search — Playwright unavailable for browser-required site',
-          );
-          return listings;
+          throw new Error('Requires browser automation (Playwright not available)');
         }
         html = rendered;
       } else {

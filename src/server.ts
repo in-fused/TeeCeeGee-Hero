@@ -550,6 +550,7 @@ app.get('/stores/:id/stock', async (req: Request, res: Response) => {
 app.get('/prices/search', async (req: Request, res: Response) => {
   const q = req.query.q as string;
   const game = req.query.game as string | undefined;
+  const retailer = req.query.retailer as string | undefined;
   const limit = Math.min(Number(req.query.limit) || 20, 50);
 
   if (!q || q.length < 2) {
@@ -561,16 +562,22 @@ app.get('/prices/search', async (req: Request, res: Response) => {
     // 1. Check for recent cached results first (less than 1 hour old)
     let cached: unknown[] = [];
     try {
+      const cacheParams: unknown[] = [q, limit];
+      let retailerFilter = '';
+      if (retailer) {
+        retailerFilter = ` AND retailer = $3`;
+        cacheParams.push(retailer);
+      }
       const cacheResult = await pool.query(
         `SELECT id, name, game, product_type, image_url, price, currency, status,
                 retailer, product_url, set_name, condition, quantity, scraped_at
          FROM scraped_listings
          WHERE is_active = TRUE
            AND to_tsvector('english', name || ' ' || COALESCE(set_name, '')) @@ plainto_tsquery('english', $1)
-           AND scraped_at > NOW() - INTERVAL '1 hour'
+           AND scraped_at > NOW() - INTERVAL '1 hour'${retailerFilter}
          ORDER BY price ASC
          LIMIT $2`,
-        [q, limit],
+        cacheParams,
       );
       cached = cacheResult.rows;
     } catch {
@@ -583,11 +590,13 @@ app.get('/prices/search', async (req: Request, res: Response) => {
       return;
     }
 
-    // 3. No cache — do a live search across TCGPlayer + eBay (fast retailers)
-    const { results, errors } = await searchAllRetailers(q, game as any, {
-      retailers: ['tcgplayer', 'ebay'],
-      limit,
-    });
+    // 3. No cache — do a live search across registered retailers
+    const searchOpts: { retailers?: string[]; limit: number } = { limit };
+    if (retailer) {
+      // Always include tcgplayer as baseline alongside the specific retailer
+      searchOpts.retailers = retailer === 'tcgplayer' ? ['tcgplayer'] : [retailer, 'tcgplayer'];
+    }
+    const { results, errors } = await searchAllRetailers(q, game as any, searchOpts);
 
     // 4. Save results to DB in background (for future cache hits + changes tracking)
     if (results.length > 0) {

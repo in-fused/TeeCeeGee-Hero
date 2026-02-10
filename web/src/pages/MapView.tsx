@@ -7,7 +7,35 @@ import { PageTransition } from '../components/PageTransition';
 import { SearchInput } from '../components/SearchInput';
 import { StoreCard } from '../components/StoreCard';
 import { Spinner } from '../components/Spinner';
-import { searchStores, getStoreProducts, searchPrices, type Store, type ProductWithSignal, type StoreSearchProduct, type ScrapedListingResult } from '../lib/api';
+import { searchStores, searchPrices, type Store, type ScrapedListingResult } from '../lib/api';
+
+// ── Retailer mapping ──
+// Maps store names to scraper retailer IDs so we can search the right online store
+const RETAILER_MATCHERS: Array<{ pattern: RegExp; retailer: string; label: string }> = [
+  { pattern: /walmart/i, retailer: 'walmart', label: 'Walmart' },
+  { pattern: /target/i, retailer: 'target', label: 'Target' },
+  { pattern: /gamestop/i, retailer: 'gamestop', label: 'GameStop' },
+  { pattern: /best\s?buy/i, retailer: 'bestbuy', label: 'Best Buy' },
+  { pattern: /costco/i, retailer: 'amazon', label: 'Amazon' }, // Costco doesn't have a scraper; use Amazon
+  { pattern: /sam'?s\s?club/i, retailer: 'walmart', label: 'Walmart' }, // Same parent co
+];
+
+function storeToRetailer(storeName: string): { retailer: string; label: string } | null {
+  for (const m of RETAILER_MATCHERS) {
+    if (m.pattern.test(storeName)) return { retailer: m.retailer, label: m.label };
+  }
+  return null;
+}
+
+const RETAILER_COLORS: Record<string, string> = {
+  tcgplayer: 'bg-[#1a7fbb]/30 text-[#5eb8e8]',
+  ebay: 'bg-[#e53238]/30 text-[#f5af02]',
+  amazon: 'bg-[#ff9900]/20 text-[#ff9900]',
+  walmart: 'bg-[#0071dc]/20 text-[#74b9ff]',
+  target: 'bg-[#cc0000]/20 text-[#ff6666]',
+  gamestop: 'bg-[#e21e25]/20 text-[#ff7777]',
+  bestbuy: 'bg-[#0046be]/20 text-[#6db3f2]',
+};
 
 // Custom marker icons
 function createIcon(color: string) {
@@ -58,9 +86,8 @@ export function MapView() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [selectedStore, setSelectedStore] = useState<Store | null>(null);
-  const [storeProducts, setStoreProducts] = useState<ProductWithSignal[]>([]);
-  const [loadingProducts, setLoadingProducts] = useState(false);
-  const [tcgProducts, setTcgProducts] = useState<StoreSearchProduct[]>([]);
+  const [storeListings, setStoreListings] = useState<ScrapedListingResult[]>([]);
+  const [loadingStoreListings, setLoadingStoreListings] = useState(false);
   const [listings, setListings] = useState<ScrapedListingResult[]>([]);
   const [loadingPrices, setLoadingPrices] = useState(false);
   const mapRef = useRef<L.Map | null>(null);
@@ -71,6 +98,7 @@ export function MapView() {
     setError('');
     setSelectedStore(null);
     setListings([]);
+    setStoreListings([]);
     try {
       const result = await searchStores({
         zip,
@@ -78,11 +106,6 @@ export function MapView() {
         store_type: storeType || undefined,
       });
       setStores(result.stores || []);
-      setTcgProducts(result.products || []);
-      // Use cached listings from /search if available
-      if (result.listings && result.listings.length > 0) {
-        setListings(result.listings);
-      }
       if (result.center) {
         setCenter({ lat: result.center.latitude, lng: result.center.longitude });
       }
@@ -127,20 +150,27 @@ export function MapView() {
 
   async function handleStoreSelect(store: Store) {
     setSelectedStore(store);
-    setStoreProducts([]);
+    setStoreListings([]);
     if (mapRef.current) {
       mapRef.current.flyTo([store.latitude, store.longitude], 16, { duration: 1 });
     }
-    // Fetch products sighted at this store
-    setLoadingProducts(true);
+
+    // Search for TCG products relevant to this store's retailer
+    setLoadingStoreListings(true);
     try {
-      const result = await getStoreProducts(store.id);
-      setStoreProducts(result.products || []);
+      const match = storeToRetailer(store.name);
+      // Search the matched retailer + tcgplayer as baseline
+      const retailerParam = match?.retailer;
+      const results = await searchPrices({
+        q: 'pokemon sealed',
+        limit: '15',
+        retailer: retailerParam,
+      });
+      setStoreListings(results.results || []);
     } catch {
-      // No products found is not an error condition
-      setStoreProducts([]);
+      setStoreListings([]);
     } finally {
-      setLoadingProducts(false);
+      setLoadingStoreListings(false);
     }
   }
 
@@ -265,7 +295,7 @@ export function MapView() {
                 </p>
                 <div className="flex items-center gap-2 py-4">
                   <Spinner />
-                  <span className="text-xs text-gray-500">Fetching live prices from TCGplayer &amp; eBay...</span>
+                  <span className="text-xs text-gray-500">Fetching live prices across retailers...</span>
                 </div>
               </div>
             )}
@@ -279,7 +309,7 @@ export function MapView() {
                 <div className="space-y-2">
                   {listings.slice(0, 30).map((l) => (
                     <a
-                      key={l.id}
+                      key={l.id || l.product_url}
                       href={l.product_url}
                       target="_blank"
                       rel="noopener noreferrer"
@@ -291,9 +321,12 @@ export function MapView() {
                         )}
                         <div className="min-w-0 flex-1">
                           <h4 className="text-xs font-medium text-white truncate">{l.name}</h4>
-                          <p className="text-[10px] text-gray-500 mt-0.5 capitalize">
-                            {l.retailer} &middot; {l.game?.replace('_', ' ')} &middot; {l.product_type?.replace('_', ' ')}
-                          </p>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full capitalize ${RETAILER_COLORS[l.retailer] || 'bg-gray-800 text-gray-400'}`}>
+                              {l.retailer}
+                            </span>
+                            <span className="text-gray-600 text-[10px] capitalize">{l.game?.replace('_', ' ')}</span>
+                          </div>
                         </div>
                         <div className="text-right shrink-0">
                           <p className="text-sm font-semibold text-white">${Number(l.price).toFixed(2)}</p>
@@ -317,58 +350,6 @@ export function MapView() {
               </div>
             )}
 
-            {/* TCG catalog products with marketplace links */}
-            {!loading && tcgProducts.length > 0 && (
-              <div className="mt-6 pt-4 border-t border-[var(--color-border-subtle)]">
-                <p className="text-[10px] uppercase tracking-wider text-gray-500 font-medium mb-3">
-                  TCG Catalog
-                </p>
-                <div className="space-y-2">
-                  {tcgProducts.slice(0, 20).map((p) => (
-                    <div
-                      key={p.id}
-                      className="rounded-lg bg-white/5 p-3 border border-white/5"
-                    >
-                      <div className="flex items-start gap-2">
-                        <div className="min-w-0 flex-1">
-                          <h4 className="text-xs font-medium text-white truncate">{p.name}</h4>
-                          <p className="text-[10px] text-gray-500 mt-0.5 capitalize">
-                            {p.game?.replace('_', ' ')} &middot; {p.product_type?.replace('_', ' ')}
-                            {p.market_price ? ` &middot; ~$${Number(p.market_price).toFixed(2)}` : ''}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex gap-2 mt-2">
-                        {p.links.tcgplayer && (
-                          <a
-                            href={p.links.tcgplayer}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex-1 text-center py-1 rounded bg-[#1a7fbb]/30 hover:bg-[#1a7fbb]/50 text-[10px] font-medium text-[#5eb8e8] transition-colors"
-                          >
-                            TCGplayer
-                          </a>
-                        )}
-                        <a
-                          href={p.links.ebay_search}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex-1 text-center py-1 rounded bg-[#e53238]/30 hover:bg-[#e53238]/50 text-[10px] font-medium text-[#f5af02] transition-colors"
-                        >
-                          eBay
-                        </a>
-                      </div>
-                    </div>
-                  ))}
-                  {tcgProducts.length > 20 && (
-                    <p className="text-[10px] text-gray-500 text-center pt-1">
-                      +{tcgProducts.length - 20} more products
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
-
             {!loading && stores.length === 0 && center && (
               <p className="text-center text-sm text-gray-500 py-12">
                 No stores found in this area.
@@ -379,7 +360,7 @@ export function MapView() {
               <div className="text-center py-12">
                 <p className="text-sm text-gray-500 mb-1">Enter a ZIP code to find stores</p>
                 <p className="text-xs text-gray-600">
-                  We&apos;ll show TCG retailers near you
+                  We&apos;ll show TCG retailers near you with live pricing
                 </p>
               </div>
             )}
@@ -409,7 +390,7 @@ export function MapView() {
                 position={[store.latitude, store.longitude]}
                 icon={storeIcons[store.store_type] || storeIcons.unknown}
                 eventHandlers={{
-                  click: () => setSelectedStore(store),
+                  click: () => handleStoreSelect(store),
                 }}
               >
                 <Popup>
@@ -437,7 +418,7 @@ export function MapView() {
             ))}
           </MapContainer>
 
-          {/* Selected store overlay */}
+          {/* Selected store overlay — shows live prices for that retailer */}
           <AnimatePresence>
             {selectedStore && (
               <motion.div
@@ -477,67 +458,66 @@ export function MapView() {
                   Open in Google Maps
                 </button>
 
-                {/* Products sighted at this store */}
+                {/* Live TCG pricing for this retailer */}
                 <div className="mt-4 pt-4 border-t border-white/10">
                   <p className="text-[10px] uppercase tracking-wider text-gray-500 font-medium mb-2">
-                    Products Sighted Here
+                    TCG Sealed Products {storeToRetailer(selectedStore.name) ? `at ${storeToRetailer(selectedStore.name)!.label}` : ''}
                   </p>
 
-                  {loadingProducts && (
-                    <div className="py-4 text-center">
+                  {loadingStoreListings && (
+                    <div className="flex items-center gap-2 py-4">
                       <Spinner />
+                      <span className="text-[10px] text-gray-500">Searching live prices...</span>
                     </div>
                   )}
 
-                  {!loadingProducts && storeProducts.length === 0 && (
+                  {!loadingStoreListings && storeListings.length === 0 && (
                     <p className="text-xs text-gray-500 py-3">
-                      No product sightings yet. Be the first to report!
+                      No live pricing available for this retailer yet.
+                      {storeToRetailer(selectedStore.name)
+                        ? ' Browser automation (Playwright) may be needed.'
+                        : ' Check the Prices tab for available listings.'}
                     </p>
                   )}
 
-                  {!loadingProducts && storeProducts.length > 0 && (
+                  {!loadingStoreListings && storeListings.length > 0 && (
                     <div className="space-y-2">
-                      {storeProducts.slice(0, 5).map((product) => (
-                        <div
-                          key={product.id}
-                          className="rounded-lg bg-white/5 p-3 border border-white/5"
+                      {storeListings.slice(0, 8).map((l) => (
+                        <a
+                          key={l.id || l.product_url}
+                          href={l.product_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block rounded-lg bg-white/5 p-2.5 border border-white/5 hover:bg-white/10 transition-colors"
                         >
-                          <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-start gap-2">
+                            {l.image_url && (
+                              <img src={l.image_url} alt="" className="w-8 h-8 rounded object-cover shrink-0" />
+                            )}
                             <div className="min-w-0 flex-1">
-                              <h4 className="text-xs font-medium text-white truncate">
-                                {product.name}
-                              </h4>
-                              <p className="text-[10px] text-gray-500 mt-0.5">
-                                Sighted {new Date(product.observed_at).toLocaleDateString()}
-                              </p>
+                              <h4 className="text-[11px] font-medium text-white truncate">{l.name}</h4>
+                              <div className="flex items-center gap-1 mt-0.5">
+                                <span className={`text-[8px] font-medium px-1 py-0.5 rounded-full capitalize ${RETAILER_COLORS[l.retailer] || 'bg-gray-800 text-gray-400'}`}>
+                                  {l.retailer}
+                                </span>
+                                <span className={`text-[8px] font-medium px-1 py-0.5 rounded-full ${
+                                  l.status === 'in_stock' ? 'bg-green-500/20 text-green-300' :
+                                  l.status === 'preorder' ? 'bg-blue-500/20 text-blue-300' :
+                                  'bg-gray-500/20 text-gray-400'
+                                }`}>
+                                  {l.status.replace('_', ' ')}
+                                </span>
+                              </div>
                             </div>
-                            <span className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-green-500/20 text-green-300">
-                              {Math.round(product.confidence * 100)}%
-                            </span>
+                            <p className="text-xs font-semibold text-white shrink-0">
+                              ${Number(l.price).toFixed(2)}
+                            </p>
                           </div>
-                          <div className="flex gap-2 mt-2">
-                            <a
-                              href={product.links.tcgplayer}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex-1 text-center py-1 rounded bg-[#1a7fbb]/30 hover:bg-[#1a7fbb]/50 text-[10px] font-medium text-[#5eb8e8] transition-colors"
-                            >
-                              TCGplayer
-                            </a>
-                            <a
-                              href={product.links.ebay_search}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex-1 text-center py-1 rounded bg-[#e53238]/30 hover:bg-[#e53238]/50 text-[10px] font-medium text-[#f5af02] transition-colors"
-                            >
-                              eBay
-                            </a>
-                          </div>
-                        </div>
+                        </a>
                       ))}
-                      {storeProducts.length > 5 && (
+                      {storeListings.length > 8 && (
                         <p className="text-[10px] text-gray-500 text-center pt-1">
-                          +{storeProducts.length - 5} more products
+                          +{storeListings.length - 8} more
                         </p>
                       )}
                     </div>

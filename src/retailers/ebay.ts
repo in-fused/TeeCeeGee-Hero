@@ -81,10 +81,10 @@ export class EbayScraper extends BaseRetailerScraper {
       });
       const html = resp.data;
 
-      // Check for block/CAPTCHA
+      // Check for block/CAPTCHA — throw so searchAllRetailers reports the error
       if (html.includes('captcha') || html.includes('robot') || html.length < 5000) {
         logger.warn({ retailer: 'ebay', query }, 'eBay may be blocking requests (CAPTCHA or short response)');
-        return listings;
+        throw new Error('Blocked by CAPTCHA — try again later');
       }
 
       const $ = cheerio.load(html);

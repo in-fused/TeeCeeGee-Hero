@@ -189,7 +189,7 @@ export interface PriceStats {
   recentChanges: number;
 }
 
-export function searchPrices(params: { q: string; game?: string; limit?: string }) {
+export function searchPrices(params: { q: string; game?: string; limit?: string; retailer?: string }) {
   return request<PriceSearchResult>('/prices/search', params);
 }
 
