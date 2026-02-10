@@ -13,7 +13,7 @@ services:
     plan: free
     name: packfinder-api
     runtime: node
-    buildCommand: npm ci --include=dev && npx playwright install --with-deps chromium && npm run build && cp -r src/db/migrations dist/src/db/migrations && node dist/src/db/migrate.js
+    buildCommand: npm ci --include=dev && npx playwright install --with-deps chromium chromium-headless-shell && npm run build && cp -r src/db/migrations dist/src/db/migrations && node dist/src/db/migrate.js
     startCommand: npm start
     healthCheckPath: /health
     envVars:

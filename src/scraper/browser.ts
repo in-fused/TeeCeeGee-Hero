@@ -54,9 +54,10 @@ type PlaywrightModule = typeof import('playwright');
 type Browser = import('playwright').Browser;
 type BrowserContext = import('playwright').BrowserContext;
 
-/** Common Playwright cache directories */
+/** Common Playwright cache directories (covers local dev, Render, Docker, etc.) */
 const CACHE_DIRS = [
   join(process.env.HOME || '/root', '.cache', 'ms-playwright'),
+  '/opt/render/.cache/ms-playwright',
   '/tmp/ms-playwright',
 ];
 
@@ -225,7 +226,7 @@ export class BrowserPool {
   private tryRuntimeInstall(): boolean {
     try {
       logger.info('Attempting runtime Chromium install...');
-      execSync('npx playwright install chromium', {
+      execSync('npx playwright install chromium chromium-headless-shell', {
         timeout: 120_000,
         stdio: 'pipe',
         env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: '0' }, // Use default cache location
