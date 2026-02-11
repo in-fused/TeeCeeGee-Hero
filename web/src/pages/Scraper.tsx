@@ -19,6 +19,8 @@ const RETAILER_COLORS: Record<string, string> = {
   target: 'bg-[#cc0000]/20 text-[#ff6666]',
   gamestop: 'bg-[#e21e25]/20 text-[#ff7777]',
   bestbuy: 'bg-[#0046be]/20 text-[#6db3f2]',
+  cardkingdom: 'bg-[#1e3a5f]/20 text-[#6db3f2]',
+  coolstuffinc: 'bg-[#ff6600]/20 text-[#ff9955]',
 };
 
 export function Scraper() {

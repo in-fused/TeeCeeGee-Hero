@@ -16,8 +16,10 @@ const RETAILER_MATCHERS: Array<{ pattern: RegExp; retailer: string; label: strin
   { pattern: /target/i, retailer: 'target', label: 'Target' },
   { pattern: /gamestop/i, retailer: 'gamestop', label: 'GameStop' },
   { pattern: /best\s?buy/i, retailer: 'bestbuy', label: 'Best Buy' },
-  { pattern: /costco/i, retailer: 'amazon', label: 'Amazon' }, // Costco doesn't have a scraper; use Amazon
-  { pattern: /sam'?s\s?club/i, retailer: 'walmart', label: 'Walmart' }, // Same parent co
+  { pattern: /costco/i, retailer: 'amazon', label: 'Amazon' },
+  { pattern: /sam'?s\s?club/i, retailer: 'walmart', label: 'Walmart' },
+  { pattern: /cool\s?stuff/i, retailer: 'coolstuffinc', label: 'CoolStuffInc' },
+  { pattern: /card\s?kingdom/i, retailer: 'cardkingdom', label: 'Card Kingdom' },
 ];
 
 function storeToRetailer(storeName: string): { retailer: string; label: string } | null {
@@ -35,6 +37,8 @@ const RETAILER_COLORS: Record<string, string> = {
   target: 'bg-[#cc0000]/20 text-[#ff6666]',
   gamestop: 'bg-[#e21e25]/20 text-[#ff7777]',
   bestbuy: 'bg-[#0046be]/20 text-[#6db3f2]',
+  cardkingdom: 'bg-[#1e3a5f]/20 text-[#6db3f2]',
+  coolstuffinc: 'bg-[#ff6600]/20 text-[#ff9955]',
 };
 
 // Custom marker icons

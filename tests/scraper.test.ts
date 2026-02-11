@@ -130,12 +130,14 @@ describe('Scraper registry', () => {
     const names = getScraperNames();
     expect(names).toContain('tcgplayer');
     expect(names).toContain('ebay');
+    expect(names).toContain('cardkingdom');
+    expect(names).toContain('coolstuffinc');
     expect(names).toContain('amazon');
     expect(names).toContain('walmart');
     expect(names).toContain('target');
     expect(names).toContain('gamestop');
     expect(names).toContain('bestbuy');
-    expect(names.length).toBe(7);
+    expect(names.length).toBe(9);
 
     const tcg = getScraper('tcgplayer');
     expect(tcg).toBeTruthy();

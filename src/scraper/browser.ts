@@ -23,6 +23,15 @@ import { join } from 'path';
 import { execSync } from 'child_process';
 import { logger } from '../lib/logger';
 import { generateFingerprint, fingerprintToHeaders, getRandomDelay } from './fingerprint';
+import { applyStealthScripts, isCloudflareChallenge, waitForCloudflareChallenge, humanScroll } from './stealth';
+
+/** Captured XHR/fetch response from AJAX interception */
+export interface InterceptedResponse {
+  url: string;
+  status: number;
+  contentType: string;
+  body: string;
+}
 
 /** Options for rendering a page */
 export interface RenderOptions {
@@ -40,6 +49,14 @@ export interface RenderOptions {
   blockAssets?: boolean;
   /** Evaluate JS after page load (e.g. scroll to trigger lazy loads) */
   postLoadScript?: string;
+  /** Apply stealth patches (navigator.webdriver, chrome.runtime, etc.) */
+  stealth?: boolean;
+  /** Intercept AJAX/XHR responses matching these URL patterns */
+  interceptPatterns?: Array<string | RegExp>;
+  /** Handle Cloudflare challenge pages automatically */
+  handleCloudflare?: boolean;
+  /** Use human-like scrolling instead of instant scroll */
+  humanScroll?: boolean;
 }
 
 export interface RenderedPage {
@@ -47,6 +64,8 @@ export interface RenderedPage {
   url: string;
   status: number;
   cookies: Array<{ name: string; value: string; domain: string; path: string }>;
+  /** AJAX/XHR responses captured during page load (if interceptPatterns was set) */
+  interceptedResponses?: InterceptedResponse[];
 }
 
 // Playwright types (resolved at runtime via dynamic import)
@@ -262,6 +281,10 @@ export class BrowserPool {
       cookies,
       blockAssets = true,
       postLoadScript,
+      stealth: useStealth = false,
+      interceptPatterns,
+      handleCloudflare = false,
+      humanScroll: useHumanScroll = false,
     } = options;
 
     // Respect concurrency limit
@@ -309,6 +332,39 @@ export class BrowserPool {
 
       const page = await context.newPage();
 
+      // Apply stealth patches before any navigation
+      if (useStealth) {
+        await applyStealthScripts(page);
+      }
+
+      // Set up AJAX/XHR interception
+      const intercepted: InterceptedResponse[] = [];
+      if (interceptPatterns && interceptPatterns.length > 0) {
+        page.on('response', async (response) => {
+          const resUrl = response.url();
+          const matches = interceptPatterns.some((p) =>
+            typeof p === 'string' ? resUrl.includes(p) : p.test(resUrl),
+          );
+          if (!matches) return;
+
+          try {
+            const contentType = response.headers()['content-type'] || '';
+            // Only capture JSON/text responses, skip binaries
+            if (contentType.includes('json') || contentType.includes('text') || contentType.includes('javascript')) {
+              const body = await response.text();
+              intercepted.push({
+                url: resUrl,
+                status: response.status(),
+                contentType,
+                body,
+              });
+            }
+          } catch {
+            // Response body unavailable (redirect, etc.) — skip
+          }
+        });
+      }
+
       // Block heavy resources to speed up rendering
       if (blockAssets) {
         await page.route('**/*', (route) => {
@@ -330,6 +386,15 @@ export class BrowserPool {
 
       const status = response?.status() ?? 0;
 
+      // Handle Cloudflare challenge pages
+      if (handleCloudflare && (await isCloudflareChallenge(page))) {
+        logger.info({ url }, 'Cloudflare challenge detected — waiting for resolution');
+        const resolved = await waitForCloudflareChallenge(page, { timeout: timeout / 2 });
+        if (!resolved) {
+          logger.warn({ url }, 'Cloudflare challenge not resolved');
+        }
+      }
+
       // Wait for the target selector if provided
       if (waitSelector) {
         try {
@@ -346,9 +411,13 @@ export class BrowserPool {
         await new Promise((r) => setTimeout(r, 1000));
       }
 
-      // Scroll down to trigger lazy-loaded content
-      await page.evaluate('window.scrollTo(0, document.body.scrollHeight / 2)');
-      await new Promise((r) => setTimeout(r, getRandomDelay(500, 1500)));
+      // Scroll to trigger lazy-loaded content
+      if (useHumanScroll) {
+        await humanScroll(page, { steps: 3, delayMin: 300, delayMax: 800 });
+      } else {
+        await page.evaluate('window.scrollTo(0, document.body.scrollHeight / 2)');
+        await new Promise((r) => setTimeout(r, getRandomDelay(500, 1500)));
+      }
 
       const html = await page.content();
       const pageCookies = (await context.cookies()).map((c) => ({
@@ -358,7 +427,13 @@ export class BrowserPool {
         path: c.path,
       }));
 
-      return { html, url: page.url(), status, cookies: pageCookies };
+      return {
+        html,
+        url: page.url(),
+        status,
+        cookies: pageCookies,
+        interceptedResponses: intercepted.length > 0 ? intercepted : undefined,
+      };
     } catch (err) {
       logger.error({ url, error: err instanceof Error ? err.message : String(err) }, 'Browser render failed');
       return null;

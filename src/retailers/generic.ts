@@ -185,6 +185,7 @@ export class GenericRetailerScraper extends BaseRetailerScraper {
 
   /**
    * Render a URL using Playwright's headless browser.
+   * Uses stealth mode and Cloudflare handling for protected sites.
    * Returns the fully-rendered HTML or null if Playwright is unavailable.
    */
   private async renderWithBrowser(url: string): Promise<string | null> {
@@ -193,12 +194,25 @@ export class GenericRetailerScraper extends BaseRetailerScraper {
 
     const result = await pool.getRenderedHtml(url, {
       waitSelector: selectors.productGrid,
-      timeout: 30_000,
+      timeout: 40_000,
       waitUntil: 'domcontentloaded',
-      blockAssets: true,
+      blockAssets: false, // JS-rendered sites often need CSS for layout
+      stealth: true,
+      handleCloudflare: true,
+      humanScroll: true,
+      // Intercept internal API calls for product data
+      interceptPatterns: ['/api/', '/search/', 'graphql', '/products/'],
     });
 
     if (!result) return null;
+
+    // If we got AJAX responses with product data, try to use those
+    if (result.interceptedResponses && result.interceptedResponses.length > 0) {
+      logger.debug(
+        { retailer: this.config.name, interceptedCount: result.interceptedResponses.length },
+        'Intercepted AJAX responses during render',
+      );
+    }
 
     // Detect bot blocks — common patterns across retailers
     const lowerHtml = result.html.toLowerCase();
@@ -235,14 +249,15 @@ export function createAmazonScraper(): GenericRetailerScraper {
     baseUrl: 'https://www.amazon.com',
     rateLimitMs: 2000,
     needsBrowser: true,
-    searchUrlTemplate: 'https://www.amazon.com/s?k={query}&page={page}',
+    // Category 183446 = Collectible Card Game Sealed Products
+    searchUrlTemplate: 'https://www.amazon.com/s?k={query}&i=toys-and-games&rh=n%3A183446&page={page}',
     selectors: {
-      productName: 'h2 a span',
-      price: '.a-price-whole, .a-price .a-offscreen',
-      availability: '.a-color-success, #availability span',
-      image: '.s-image',
-      productGrid: '[data-component-type="s-search-result"]',
-      productLink: 'h2 a',
+      productName: 'h2 a span, .s-title-instructions-style span',
+      price: '.a-price .a-offscreen, .a-price-whole, span.a-color-price',
+      availability: '.a-color-success, #availability span, .a-declarative .a-color-success',
+      image: '.s-image, img.s-image',
+      productGrid: '[data-component-type="s-search-result"], div.s-result-item[data-asin]',
+      productLink: 'h2 a, a.a-link-normal.s-underline-text',
     },
   });
 }
@@ -251,16 +266,16 @@ export function createWalmartScraper(): GenericRetailerScraper {
   return new GenericRetailerScraper({
     name: 'walmart',
     baseUrl: 'https://www.walmart.com',
-    rateLimitMs: 2000,
+    rateLimitMs: 2500,
     needsBrowser: true,
-    searchUrlTemplate: 'https://www.walmart.com/search?q={query}&page={page}',
+    searchUrlTemplate: 'https://www.walmart.com/search?q={query}&page={page}&cat_id=4191_4215_4218_6173942',
     selectors: {
-      productName: '[data-automation-id="product-title"]',
-      price: '[data-automation-id="product-price"] span',
-      availability: '[data-automation-id="product-availability"]',
-      image: '[data-testid="product-image"] img',
-      productGrid: '[data-testid="item-stack"]',
-      productLink: 'a[link-identifier]',
+      productName: '[data-automation-id="product-title"], span[data-automation-id="product-title"]',
+      price: '[data-automation-id="product-price"] span, .price-main .visuallyhidden, [itemprop="price"]',
+      availability: '[data-automation-id="product-availability"], .prod-fulfillment-messaging',
+      image: '[data-testid="product-image"] img, img[data-testid="productTileImage"]',
+      productGrid: '[data-testid="item-stack"], [data-item-id], div[data-testid="list-view"]',
+      productLink: 'a[link-identifier], a[href*="/ip/"]',
     },
   });
 }
@@ -269,16 +284,16 @@ export function createTargetScraper(): GenericRetailerScraper {
   return new GenericRetailerScraper({
     name: 'target',
     baseUrl: 'https://www.target.com',
-    rateLimitMs: 2000,
+    rateLimitMs: 2500,
     needsBrowser: true,
-    searchUrlTemplate: 'https://www.target.com/s?searchTerm={query}&page={page}',
+    searchUrlTemplate: 'https://www.target.com/s?searchTerm={query}&Nao={page}',
     selectors: {
-      productName: '[data-test="product-title"]',
-      price: '[data-test="product-price"]',
-      availability: '[data-test="availability-status"]',
-      image: '[data-test="product-image"] img',
-      productGrid: '[data-test="product-card"]',
-      productLink: 'a[href*="/p/"]',
+      productName: '[data-test="product-title"], h3 a, .styles__StyledTitleLink-sc',
+      price: '[data-test="product-price"], span[data-test="current-price"] span',
+      availability: '[data-test="availability-status"], [data-test="fulfillment-shipping"]',
+      image: '[data-test="product-image"] img, picture img',
+      productGrid: '[data-test="product-card"], [data-test="@web/ProductCard"]',
+      productLink: 'a[href*="/p/"], a[data-test="product-title"]',
     },
   });
 }
@@ -287,16 +302,16 @@ export function createGameStopScraper(): GenericRetailerScraper {
   return new GenericRetailerScraper({
     name: 'gamestop',
     baseUrl: 'https://www.gamestop.com',
-    rateLimitMs: 1500,
+    rateLimitMs: 2000,
     needsBrowser: true,
-    searchUrlTemplate: 'https://www.gamestop.com/search/?q={query}&page={page}',
+    searchUrlTemplate: 'https://www.gamestop.com/search/?q={query}&start={page}&sz=24',
     selectors: {
-      productName: '.product-tile__title, .product-name',
-      price: '.product-tile__price, .sr-price',
-      availability: '.product-tile__availability, .availability-msg',
-      image: '.product-tile__image img',
-      productGrid: '.product-tile',
-      productLink: 'a.product-tile__link',
+      productName: '.product-tile__title, .product-name, .product-card-title a',
+      price: '.product-tile__price, .sr-price, .actual-price, span[data-price]',
+      availability: '.product-tile__availability, .availability-msg, .fulfillment-options',
+      image: '.product-tile__image img, .product-card-image img',
+      productGrid: '.product-tile, .product-card, [data-index]',
+      productLink: 'a.product-tile__link, a.product-card__link, .product-card-title a',
     },
   });
 }
@@ -305,16 +320,16 @@ export function createBestBuyScraper(): GenericRetailerScraper {
   return new GenericRetailerScraper({
     name: 'bestbuy',
     baseUrl: 'https://www.bestbuy.com',
-    rateLimitMs: 2000,
+    rateLimitMs: 2500,
     needsBrowser: true,
     searchUrlTemplate: 'https://www.bestbuy.com/site/searchpage.jsp?st={query}&cp={page}',
     selectors: {
-      productName: '.sku-title a',
-      price: '.pricing-price__range, .sr-text',
-      availability: '.fulfillment-add-to-cart-button',
-      image: '.product-image img',
-      productGrid: '.sku-item, .sr-item',
-      productLink: '.sku-title a',
+      productName: '.sku-title a, .sku-header a, h4.sku-title a',
+      price: '.priceView-customer-price span, .pricing-price__range, .sr-text',
+      availability: '.fulfillment-add-to-cart-button, .add-to-cart-button, [data-button-state]',
+      image: '.product-image img, img.product-image, picture.product-image img',
+      productGrid: '.sku-item, .sr-item, .list-item',
+      productLink: '.sku-title a, .sku-header a',
     },
   });
 }
