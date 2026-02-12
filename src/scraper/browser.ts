@@ -115,6 +115,16 @@ export class BrowserPool {
       // Dynamic import — keeps Playwright fully optional
       this.pw = await (Function('return import("playwright")')() as Promise<PlaywrightModule>);
 
+      // Log what's in the cache dirs for debugging
+      for (const dir of CACHE_DIRS) {
+        if (existsSync(dir)) {
+          try {
+            const entries = readdirSync(dir);
+            logger.info({ cacheDir: dir, contents: entries }, 'Playwright cache contents');
+          } catch { /* can't read */ }
+        }
+      }
+
       const launchArgs = [
         '--disable-blink-features=AutomationControlled',
         '--disable-dev-shm-usage',
@@ -124,20 +134,18 @@ export class BrowserPool {
         '--disable-gpu',
       ];
 
-      // Strategy 1: Try default Playwright-managed binary
+      // Strategy 1: Try default Playwright-managed binary (needs both chromium + headless-shell)
       try {
         this.browser = await this.pw.chromium.launch({ headless: true, args: launchArgs });
         this.available = true;
         logger.info('Playwright browser pool initialized (default binary)');
         return true;
       } catch (defaultErr) {
-        logger.debug(
-          { error: defaultErr instanceof Error ? defaultErr.message : String(defaultErr) },
-          'Default Chromium binary not found — scanning for alternatives',
-        );
+        const errMsg = defaultErr instanceof Error ? defaultErr.message : String(defaultErr);
+        logger.info({ error: errMsg }, 'Default Chromium launch failed — trying alternatives');
       }
 
-      // Strategy 2: Scan for any available Chromium in the cache
+      // Strategy 2: Try with explicit executablePath from cache scan
       const execPath = this.findCachedChromium();
       if (execPath) {
         try {
@@ -150,29 +158,44 @@ export class BrowserPool {
           logger.info({ executablePath: execPath }, 'Playwright browser pool initialized (cached binary)');
           return true;
         } catch (cachedErr) {
-          logger.debug(
-            { error: cachedErr instanceof Error ? cachedErr.message : String(cachedErr) },
+          logger.info(
+            { error: cachedErr instanceof Error ? cachedErr.message : String(cachedErr), executablePath: execPath },
             'Cached Chromium binary failed to launch',
           );
         }
       }
 
-      // Strategy 3: Try runtime install
+      // Strategy 3: Try launching with channel='chromium' (uses system-installed Chromium)
+      try {
+        this.browser = await this.pw.chromium.launch({
+          headless: true,
+          channel: 'chromium',
+          args: launchArgs,
+        });
+        this.available = true;
+        logger.info('Playwright browser pool initialized (system chromium channel)');
+        return true;
+      } catch {
+        // System chromium not available
+      }
+
+      // Strategy 4: Try runtime install, then retry all approaches
       const installed = this.tryRuntimeInstall();
       if (installed) {
+        // Retry default launch
         try {
           this.browser = await this.pw.chromium.launch({ headless: true, args: launchArgs });
           this.available = true;
           logger.info('Playwright browser pool initialized (runtime install)');
           return true;
         } catch (installErr) {
-          logger.warn(
+          logger.info(
             { error: installErr instanceof Error ? installErr.message : String(installErr) },
-            'Runtime-installed Chromium failed to launch',
+            'Post-install default launch failed — scanning cache',
           );
         }
 
-        // Try scanning cache again after install (might be a different path)
+        // Retry cache scan
         const newPath = this.findCachedChromium();
         if (newPath) {
           try {
@@ -191,7 +214,7 @@ export class BrowserPool {
       }
 
       this.available = false;
-      logger.warn('Playwright unavailable — no compatible Chromium binary found');
+      logger.warn('Playwright unavailable — no compatible Chromium binary found. Check build command includes: npx playwright install --with-deps chromium chromium-headless-shell');
       return false;
     } catch (err) {
       this.available = false;
@@ -205,6 +228,7 @@ export class BrowserPool {
 
   /**
    * Scan Playwright cache directories for any chromium binary.
+   * Checks both full chromium and headless shell variants.
    * Returns the executable path, or null if none found.
    */
   private findCachedChromium(): string | null {
@@ -212,22 +236,47 @@ export class BrowserPool {
       if (!existsSync(cacheDir)) continue;
 
       try {
-        const entries = readdirSync(cacheDir)
-          .filter((d) => d.startsWith('chromium-') && !d.includes('headless_shell'))
-          .sort()
-          .reverse(); // Newest version first
+        const allEntries = readdirSync(cacheDir);
+        logger.info({ cacheDir, entries: allEntries }, 'Scanning Playwright cache directory');
 
-        for (const entry of entries) {
+        // 1. Check for headless shell first (Playwright prefers this for headless mode)
+        const headlessShellEntries = allEntries
+          .filter((d) => d.startsWith('chromium_headless_shell-') || d.startsWith('chromium-headless-shell-'))
+          .sort()
+          .reverse();
+
+        for (const entry of headlessShellEntries) {
+          // Playwright 1.58+ path: chromium_headless_shell-XXXX/chrome-headless-shell-linux64/chrome-headless-shell
+          const hsLinuxPath = join(cacheDir, entry, 'chrome-headless-shell-linux64', 'chrome-headless-shell');
+          if (existsSync(hsLinuxPath)) {
+            logger.info({ path: hsLinuxPath, version: entry }, 'Found cached headless shell');
+            return hsLinuxPath;
+          }
+          // Alternative layout
+          const hsAltPath = join(cacheDir, entry, 'chrome-headless-shell');
+          if (existsSync(hsAltPath)) {
+            logger.info({ path: hsAltPath, version: entry }, 'Found cached headless shell (alt path)');
+            return hsAltPath;
+          }
+        }
+
+        // 2. Fall back to full chromium binary
+        const chromiumEntries = allEntries
+          .filter((d) => d.startsWith('chromium-') && !d.includes('headless'))
+          .sort()
+          .reverse();
+
+        for (const entry of chromiumEntries) {
           // Linux path
           const linuxPath = join(cacheDir, entry, 'chrome-linux', 'chrome');
           if (existsSync(linuxPath)) {
-            logger.debug({ path: linuxPath, version: entry }, 'Found cached Chromium');
+            logger.info({ path: linuxPath, version: entry }, 'Found cached Chromium');
             return linuxPath;
           }
           // macOS path
           const macPath = join(cacheDir, entry, 'chrome-mac', 'Chromium.app', 'Contents', 'MacOS', 'Chromium');
           if (existsSync(macPath)) {
-            logger.debug({ path: macPath, version: entry }, 'Found cached Chromium');
+            logger.info({ path: macPath, version: entry }, 'Found cached Chromium');
             return macPath;
           }
         }

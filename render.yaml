@@ -13,7 +13,7 @@ services:
     plan: free
     name: packfinder-api
     runtime: node
-    buildCommand: npm ci --include=dev && npx playwright install --with-deps chromium chromium-headless-shell && npm run build && cp -r src/db/migrations dist/src/db/migrations && node dist/src/db/migrate.js
+    buildCommand: npm ci --include=dev && PLAYWRIGHT_BROWSERS_PATH=0 npx playwright install --with-deps chromium chromium-headless-shell && echo "=== Playwright cache contents ===" && ls -la $HOME/.cache/ms-playwright/ 2>/dev/null || true && ls -la /opt/render/.cache/ms-playwright/ 2>/dev/null || true && npm run build && cp -r src/db/migrations dist/src/db/migrations && node dist/src/db/migrate.js
     startCommand: npm start
     healthCheckPath: /health
     envVars:
