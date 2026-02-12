@@ -1,7 +1,7 @@
 /**
- * Card Kingdom sealed products scraper.
+ * Card Kingdom sealed product API integration.
  *
- * Uses Card Kingdom's public JSON pricelist API:
+ * Uses Card Kingdom's public JSON pricelist:
  *   GET https://api.cardkingdom.com/api/sealed_pricelist
  *
  * Key facts:
@@ -48,7 +48,11 @@ export class CardKingdomScraper extends BaseRetailerScraper {
     });
   }
 
-  /** Fetch and cache the sealed pricelist. */
+  /**
+   * Fetch and cache the sealed pricelist.
+   * Throws on failure so searchAllRetailers can report the error.
+   * Falls back to stale cache if available (better than nothing).
+   */
   private async fetchPricelist(): Promise<CKSealedItem[]> {
     const now = Date.now();
     if (this.cachedData && now - this.cacheTimestamp < CardKingdomScraper.CACHE_TTL_MS) {
@@ -63,8 +67,11 @@ export class CardKingdomScraper extends BaseRetailerScraper {
 
       const data = resp.data?.data;
       if (!Array.isArray(data)) {
-        logger.warn('Card Kingdom pricelist returned unexpected shape');
-        return this.cachedData || [];
+        if (this.cachedData) {
+          logger.warn('Card Kingdom pricelist returned unexpected shape — using stale cache');
+          return this.cachedData;
+        }
+        throw new Error('Card Kingdom API returned unexpected response shape');
       }
 
       this.cachedData = data;
@@ -73,8 +80,16 @@ export class CardKingdomScraper extends BaseRetailerScraper {
       logger.info({ count: data.length }, 'Card Kingdom sealed pricelist fetched');
       return data;
     } catch (err) {
-      logger.error({ error: err instanceof Error ? err.message : String(err) }, 'Card Kingdom pricelist fetch failed');
-      return this.cachedData || [];
+      // If we have stale cache, use it but log warning
+      if (this.cachedData) {
+        logger.warn(
+          { error: err instanceof Error ? err.message : String(err) },
+          'Card Kingdom fetch failed — using stale cache',
+        );
+        return this.cachedData;
+      }
+      // No cache available — re-throw so the error reaches the frontend
+      throw err;
     }
   }
 
@@ -99,7 +114,6 @@ export class CardKingdomScraper extends BaseRetailerScraper {
   async scrapeProduct(url: string): Promise<ScrapeResult> {
     try {
       const items = await this.fetchPricelist();
-      // Match by URL or ID from the URL
       const match = items.find(
         (item) => url.includes(item.url) || url.includes(String(item.id)),
       );
@@ -114,6 +128,11 @@ export class CardKingdomScraper extends BaseRetailerScraper {
     }
   }
 
+  /**
+   * Search the Card Kingdom sealed pricelist.
+   * Throws on API failure so the error propagates to the frontend.
+   * Returns [] silently only for expected cases (non-MTG game filter, no matches).
+   */
   async searchProducts(
     query: string,
     game?: ScraperGameType,
@@ -121,46 +140,38 @@ export class CardKingdomScraper extends BaseRetailerScraper {
   ): Promise<ScrapedListing[]> {
     const { limit = 24, inStock } = options;
 
-    // Card Kingdom is MTG-only — skip for non-MTG game filters
+    // Card Kingdom is MTG-only — skip silently for non-MTG game filters (not an error)
     if (game && game !== 'mtg' && game !== 'other') {
       return [];
     }
 
-    try {
-      const items = await this.fetchPricelist();
-      const queryLower = query.toLowerCase();
-      const queryTerms = queryLower.split(/\s+/);
+    // fetchPricelist throws on failure — let it propagate to searchAllRetailers
+    const items = await this.fetchPricelist();
+    const queryLower = query.toLowerCase();
+    const queryTerms = queryLower.split(/\s+/);
 
-      const filtered = items.filter((item) => {
-        // Skip out-of-stock if requested
-        if (inStock && item.qty_retail <= 0) return false;
-        if (item.price_retail <= 0) return false;
+    const filtered = items.filter((item) => {
+      if (inStock && item.qty_retail <= 0) return false;
+      if (item.price_retail <= 0) return false;
+      const searchText = `${item.name} ${item.edition}`.toLowerCase();
+      return queryTerms.every((term) => searchText.includes(term));
+    });
 
-        // Match query terms against name + edition
-        const searchText = `${item.name} ${item.edition}`.toLowerCase();
-        return queryTerms.every((term) => searchText.includes(term));
-      });
+    filtered.sort((a, b) => {
+      const aExact = a.name.toLowerCase().includes(queryLower) ? 0 : 1;
+      const bExact = b.name.toLowerCase().includes(queryLower) ? 0 : 1;
+      if (aExact !== bExact) return aExact - bExact;
+      return a.price_retail - b.price_retail;
+    });
 
-      // Sort by relevance (exact name match first, then price)
-      filtered.sort((a, b) => {
-        const aExact = a.name.toLowerCase().includes(queryLower) ? 0 : 1;
-        const bExact = b.name.toLowerCase().includes(queryLower) ? 0 : 1;
-        if (aExact !== bExact) return aExact - bExact;
-        return a.price_retail - b.price_retail;
-      });
+    const listings = filtered.slice(0, limit).map((item) => this.itemToListing(item));
 
-      const listings = filtered.slice(0, limit).map((item) => this.itemToListing(item));
+    logger.info(
+      { retailer: 'cardkingdom', query, results: listings.length, totalMatched: filtered.length },
+      'Card Kingdom search done',
+    );
 
-      logger.info(
-        { retailer: 'cardkingdom', query, results: listings.length, totalMatched: filtered.length },
-        'Card Kingdom search done',
-      );
-
-      return listings;
-    } catch (error) {
-      logger.error({ error, query }, 'Card Kingdom search failed');
-      return [];
-    }
+    return listings;
   }
 }
 

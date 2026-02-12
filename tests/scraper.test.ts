@@ -203,11 +203,10 @@ describe('Generic scraper browser integration', () => {
     }
   });
 
-  it('should return empty array from searchProducts when Playwright unavailable', async () => {
+  it('should throw from searchProducts when Playwright unavailable', async () => {
     const { createAmazonScraper } = await import('../src/retailers/generic');
     const scraper = createAmazonScraper();
-    const results = await scraper.searchProducts('pokemon etb');
-    expect(results).toEqual([]);
+    await expect(scraper.searchProducts('pokemon etb')).rejects.toThrow();
   });
 });
 

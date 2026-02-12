@@ -164,8 +164,8 @@ export class GenericRetailerScraper extends BaseRetailerScraper {
       logger.info({ retailer: this.config.name, query, results: listings.length }, 'Search completed');
       return listings;
     } catch (error) {
-      logger.error({ error, query, retailer: this.config.name }, 'Search failed');
-      return listings;
+      // Re-throw so searchAllRetailers can report this error to the frontend
+      throw error;
     }
   }
 

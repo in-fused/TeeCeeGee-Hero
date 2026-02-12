@@ -128,8 +128,8 @@ export class CoolStuffIncScraper extends BaseRetailerScraper {
       );
       return listings;
     } catch (error) {
-      logger.error({ error, query, retailer: 'coolstuffinc' }, 'CoolStuffInc search failed');
-      return listings;
+      // Re-throw so searchAllRetailers can report this error to the frontend
+      throw error;
     }
   }
 
