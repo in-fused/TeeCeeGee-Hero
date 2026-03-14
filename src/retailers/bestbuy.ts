@@ -108,13 +108,15 @@ export class BestBuyScraper extends BaseRetailerScraper {
     this.ensureApiKey();
 
     // Build Best Buy API query with category filter for trading cards
-    const searchFilter = `(search=${encodeURIComponent(query)}&categoryPath.id=${BB_TRADING_CARDS_CATEGORY})`;
-    let apiUrl = `${BB_API_BASE}/products${searchFilter}?apiKey=${this.apiKey}&format=json&show=${BB_SHOW_FIELDS}&pageSize=${Math.min(limit, 100)}&page=${page}`;
-
+    const filters = [
+      `search=${encodeURIComponent(query)}`,
+      `categoryPath.id=${BB_TRADING_CARDS_CATEGORY}`,
+    ];
     if (inStock) {
-      // Best Buy API supports filtering on onlineAvailability
-      apiUrl = apiUrl.replace(')?', '&onlineAvailability=true)?');
+      filters.push('onlineAvailability=true');
     }
+    const searchFilter = `(${filters.join('&')})`;
+    const apiUrl = `${BB_API_BASE}/products${searchFilter}?apiKey=${this.apiKey}&format=json&show=${BB_SHOW_FIELDS}&pageSize=${Math.min(limit, 100)}&page=${page}`;
 
     const resp = await this.client.get<BBSearchResponse>(apiUrl, {
       headers: { Accept: 'application/json' },
