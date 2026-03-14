@@ -8,17 +8,23 @@ import { TCGplayerScraper, tcgplayerScraper } from './tcgplayer';
 import { EbayScraper, ebayScraper } from './ebay';
 import { CardKingdomScraper, cardKingdomScraper } from './cardkingdom';
 import { CoolStuffIncScraper, coolStuffIncScraper } from './coolstuffinc';
-import {
-  createAmazonScraper,
-  createWalmartScraper,
-  createTargetScraper,
-  createGameStopScraper,
-  createBestBuyScraper,
-} from './generic';
+import { BestBuyScraper, bestBuyScraper } from './bestbuy';
+import { TargetScraper, targetScraper } from './target';
+import { JustTCGScraper, justTCGScraper } from './justtcg';
+import { createAmazonScraper, createWalmartScraper, createGameStopScraper } from './generic';
 import { logger } from '../lib/logger';
 import type { ScrapedListing, ScraperGameType } from '../types/scraper';
 
-export { BaseRetailerScraper, TCGplayerScraper, EbayScraper, CardKingdomScraper, CoolStuffIncScraper };
+export {
+  BaseRetailerScraper,
+  TCGplayerScraper,
+  EbayScraper,
+  CardKingdomScraper,
+  CoolStuffIncScraper,
+  BestBuyScraper,
+  TargetScraper,
+  JustTCGScraper,
+};
 
 const scraperRegistry = new Map<string, BaseRetailerScraper>();
 
@@ -30,9 +36,10 @@ export function initializeScrapers(): void {
   scraperRegistry.set('coolstuffinc', coolStuffIncScraper);
   scraperRegistry.set('amazon', createAmazonScraper());
   scraperRegistry.set('walmart', createWalmartScraper());
-  scraperRegistry.set('target', createTargetScraper());
+  scraperRegistry.set('target', targetScraper);
   scraperRegistry.set('gamestop', createGameStopScraper());
-  scraperRegistry.set('bestbuy', createBestBuyScraper());
+  scraperRegistry.set('bestbuy', bestBuyScraper);
+  scraperRegistry.set('justtcg', justTCGScraper);
   logger.info({ scrapers: Array.from(scraperRegistry.keys()) }, 'Scraper registry initialized');
 }
 
@@ -67,7 +74,10 @@ export async function searchAllRetailers(
         const listings = await s.searchProducts(query, game, { limit, inStock });
         results.push(...listings);
       } catch (err) {
-        errors.push({ retailer: s.getName(), error: err instanceof Error ? err.message : 'Unknown' });
+        errors.push({
+          retailer: s.getName(),
+          error: err instanceof Error ? err.message : 'Unknown',
+        });
       }
     }),
   );
@@ -93,13 +103,18 @@ export async function scrapeProductUrl(
     }
   }
 
-  if (!scraper) return { listing: null, retailer: 'unknown', error: 'Could not determine retailer' };
+  if (!scraper)
+    return { listing: null, retailer: 'unknown', error: 'Could not determine retailer' };
 
   try {
     const result = await scraper.scrapeProduct(url);
     return { listing: result.listing, retailer: scraper.getName(), error: result.error };
   } catch (err) {
-    return { listing: null, retailer: scraper.getName(), error: err instanceof Error ? err.message : 'Unknown' };
+    return {
+      listing: null,
+      retailer: scraper.getName(),
+      error: err instanceof Error ? err.message : 'Unknown',
+    };
   }
 }
 
@@ -109,7 +124,9 @@ export async function scrapeSetAcrossRetailers(
   options: { retailers?: string[] } = {},
 ): Promise<{ results: ScrapedListing[]; errors: Array<{ retailer: string; error: string }> }> {
   const scrapers = options.retailers
-    ? (options.retailers.map((n) => scraperRegistry.get(n)).filter(Boolean) as BaseRetailerScraper[])
+    ? (options.retailers
+        .map((n) => scraperRegistry.get(n))
+        .filter(Boolean) as BaseRetailerScraper[])
     : getAllScrapers();
 
   const results: ScrapedListing[] = [];
@@ -121,7 +138,10 @@ export async function scrapeSetAcrossRetailers(
         const listings = await s.scrapeSet(setName, game);
         results.push(...listings);
       } catch (err) {
-        errors.push({ retailer: s.getName(), error: err instanceof Error ? err.message : 'Unknown' });
+        errors.push({
+          retailer: s.getName(),
+          error: err instanceof Error ? err.message : 'Unknown',
+        });
       }
     }),
   );
@@ -139,7 +159,7 @@ export function resetAllScraperCounts(): void {
 }
 
 export async function getLowestPrice(
-  productName: string,
+  _productName: string,
 ): Promise<{ price: number; retailer: string; listingId?: string } | null> {
   // This is a DB-backed version that searches scraped_listings
   // Used by replenishment routes. Actual implementation in db/scraper.ts

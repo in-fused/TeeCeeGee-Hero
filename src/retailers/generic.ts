@@ -48,7 +48,11 @@ export class GenericRetailerScraper extends BaseRetailerScraper {
       if (this.genericConfig.needsBrowser) {
         const rendered = await this.renderWithBrowser(url);
         if (!rendered) {
-          return { listing: null, success: false, error: `${this.config.name} requires browser automation (Playwright unavailable)` };
+          return {
+            listing: null,
+            success: false,
+            error: `${this.config.name} requires browser automation (Playwright unavailable)`,
+          };
         }
         html = rendered;
       } else {
@@ -69,7 +73,8 @@ export class GenericRetailerScraper extends BaseRetailerScraper {
 
       let imageUrl: string | undefined;
       if (selectors.image) {
-        const src = $(selectors.image).first().attr('src') || $(selectors.image).first().attr('data-src');
+        const src =
+          $(selectors.image).first().attr('src') || $(selectors.image).first().attr('data-src');
         if (src) imageUrl = src.startsWith('http') ? src : `${this.config.baseUrl}${src}`;
       }
 
@@ -99,74 +104,72 @@ export class GenericRetailerScraper extends BaseRetailerScraper {
     const { page = 1, inStock } = options;
     const listings: ScrapedListing[] = [];
 
-    try {
-      const searchUrl = this.genericConfig.searchUrlTemplate
-        .replace('{query}', encodeURIComponent(query))
-        .replace('{page}', String(page));
+    const searchUrl = this.genericConfig.searchUrlTemplate
+      .replace('{query}', encodeURIComponent(query))
+      .replace('{page}', String(page));
 
-      let html: string;
+    let html: string;
 
-      if (this.genericConfig.needsBrowser) {
-        const rendered = await this.renderWithBrowser(searchUrl);
-        if (!rendered) {
-          throw new Error('Requires browser automation (Playwright not available)');
-        }
-        html = rendered;
-      } else {
-        const resp = await this.client.get<string>(searchUrl);
-        html = resp.data;
+    if (this.genericConfig.needsBrowser) {
+      const rendered = await this.renderWithBrowser(searchUrl);
+      if (!rendered) {
+        throw new Error('Requires browser automation (Playwright not available)');
+      }
+      html = rendered;
+    } else {
+      const resp = await this.client.get<string>(searchUrl);
+      html = resp.data;
+    }
+
+    const $ = cheerio.load(html);
+    const { selectors } = this.genericConfig;
+    const productSelector = selectors.productGrid || '.product';
+
+    $(productSelector).each((_, el) => {
+      const $p = $(el);
+      const linkSel = selectors.productLink || 'a';
+      const link = $p.find(linkSel).first().attr('href');
+      if (!link) return;
+      const productUrl = link.startsWith('http') ? link : `${this.config.baseUrl}${link}`;
+
+      const name = $p.find(selectors.productName).first().text().trim();
+      if (!name) return;
+
+      const price = this.parsePrice($p.find(selectors.price).first().text().trim());
+      if (inStock && price === 0) return;
+
+      const status = this.parseStatus($p.find(selectors.availability).first().text().trim());
+      if (inStock && status === 'out_of_stock') return;
+
+      let imageUrl: string | undefined;
+      if (selectors.image) {
+        const img = $p.find(selectors.image).first();
+        const src = img.attr('src') || img.attr('data-src') || img.attr('data-original');
+        if (src) imageUrl = src.startsWith('http') ? src : `${this.config.baseUrl}${src}`;
       }
 
-      const $ = cheerio.load(html);
-      const { selectors } = this.genericConfig;
-      const productSelector = selectors.productGrid || '.product';
+      const detected = this.detectGame(name);
+      if (game && detected !== game && detected !== 'other') return;
 
-      $(productSelector).each((_, el) => {
-        const $p = $(el);
-        const linkSel = selectors.productLink || 'a';
-        const link = $p.find(linkSel).first().attr('href');
-        if (!link) return;
-        const productUrl = link.startsWith('http') ? link : `${this.config.baseUrl}${link}`;
+      listings.push(
+        this.createListing({
+          externalId: this.extractExternalId(productUrl),
+          name,
+          productUrl,
+          price,
+          status,
+          imageUrl,
+          game: detected,
+        }),
+      );
+    });
 
-        const name = $p.find(selectors.productName).first().text().trim();
-        if (!name) return;
-
-        const price = this.parsePrice($p.find(selectors.price).first().text().trim());
-        if (inStock && price === 0) return;
-
-        const status = this.parseStatus($p.find(selectors.availability).first().text().trim());
-        if (inStock && status === 'out_of_stock') return;
-
-        let imageUrl: string | undefined;
-        if (selectors.image) {
-          const img = $p.find(selectors.image).first();
-          const src = img.attr('src') || img.attr('data-src') || img.attr('data-original');
-          if (src) imageUrl = src.startsWith('http') ? src : `${this.config.baseUrl}${src}`;
-        }
-
-        const detected = this.detectGame(name);
-        if (game && detected !== game && detected !== 'other') return;
-
-        listings.push(
-          this.createListing({
-            externalId: this.extractExternalId(productUrl),
-            name,
-            productUrl,
-            price,
-            status,
-            imageUrl,
-            game: detected,
-          }),
-        );
-      });
-
-      this.requestCount++;
-      logger.info({ retailer: this.config.name, query, results: listings.length }, 'Search completed');
-      return listings;
-    } catch (error) {
-      // Re-throw so searchAllRetailers can report this error to the frontend
-      throw error;
-    }
+    this.requestCount++;
+    logger.info(
+      { retailer: this.config.name, query, results: listings.length },
+      'Search completed',
+    );
+    return listings;
   }
 
   async scrapeSet(setName: string, game: ScraperGameType): Promise<ScrapedListing[]> {
@@ -222,14 +225,23 @@ export class GenericRetailerScraper extends BaseRetailerScraper {
       lowerHtml.includes('access denied') ||
       lowerHtml.includes('blocked')
     ) {
-      logger.warn({ retailer: this.config.name, url }, 'Bot detection triggered during browser render');
+      logger.warn(
+        { retailer: this.config.name, url },
+        'Bot detection triggered during browser render',
+      );
     }
 
     return result.html;
   }
 
   private extractExternalId(url: string): string {
-    const patterns = [/\/product\/(\d+)/, /\/p\/(\d+)/, /[?&]pid=(\d+)/, /[?&]id=(\d+)/, /-p-(\d+)/];
+    const patterns = [
+      /\/product\/(\d+)/,
+      /\/p\/(\d+)/,
+      /[?&]pid=(\d+)/,
+      /[?&]id=(\d+)/,
+      /-p-(\d+)/,
+    ];
     for (const p of patterns) {
       const m = url.match(p);
       if (m) return m[1];
@@ -238,10 +250,11 @@ export class GenericRetailerScraper extends BaseRetailerScraper {
   }
 }
 
-// Pre-configured retailer scrapers
+// Pre-configured retailer scrapers using JS rendering (Playwright)
 // Note: eBay has a dedicated scraper in ./ebay.ts
+// Note: Best Buy and Target now have dedicated API integrations in ./bestbuy.ts and ./target.ts
+// Note: JustTCG has a dedicated API integration in ./justtcg.ts
 // The retailers below use JS rendering — they need Playwright for real data.
-// They are registered so users see them in the dashboard, but skip HTTP scraping.
 
 export function createAmazonScraper(): GenericRetailerScraper {
   return new GenericRetailerScraper({
@@ -250,7 +263,8 @@ export function createAmazonScraper(): GenericRetailerScraper {
     rateLimitMs: 2000,
     needsBrowser: true,
     // Category 183446 = Collectible Card Game Sealed Products
-    searchUrlTemplate: 'https://www.amazon.com/s?k={query}&i=toys-and-games&rh=n%3A183446&page={page}',
+    searchUrlTemplate:
+      'https://www.amazon.com/s?k={query}&i=toys-and-games&rh=n%3A183446&page={page}',
     selectors: {
       productName: 'h2 a span, .s-title-instructions-style span',
       price: '.a-price .a-offscreen, .a-price-whole, span.a-color-price',
@@ -268,32 +282,16 @@ export function createWalmartScraper(): GenericRetailerScraper {
     baseUrl: 'https://www.walmart.com',
     rateLimitMs: 2500,
     needsBrowser: true,
-    searchUrlTemplate: 'https://www.walmart.com/search?q={query}&page={page}&cat_id=4191_4215_4218_6173942',
+    searchUrlTemplate:
+      'https://www.walmart.com/search?q={query}&page={page}&cat_id=4191_4215_4218_6173942',
     selectors: {
       productName: '[data-automation-id="product-title"], span[data-automation-id="product-title"]',
-      price: '[data-automation-id="product-price"] span, .price-main .visuallyhidden, [itemprop="price"]',
+      price:
+        '[data-automation-id="product-price"] span, .price-main .visuallyhidden, [itemprop="price"]',
       availability: '[data-automation-id="product-availability"], .prod-fulfillment-messaging',
       image: '[data-testid="product-image"] img, img[data-testid="productTileImage"]',
       productGrid: '[data-testid="item-stack"], [data-item-id], div[data-testid="list-view"]',
       productLink: 'a[link-identifier], a[href*="/ip/"]',
-    },
-  });
-}
-
-export function createTargetScraper(): GenericRetailerScraper {
-  return new GenericRetailerScraper({
-    name: 'target',
-    baseUrl: 'https://www.target.com',
-    rateLimitMs: 2500,
-    needsBrowser: true,
-    searchUrlTemplate: 'https://www.target.com/s?searchTerm={query}&Nao={page}',
-    selectors: {
-      productName: '[data-test="product-title"], h3 a, .styles__StyledTitleLink-sc',
-      price: '[data-test="product-price"], span[data-test="current-price"] span',
-      availability: '[data-test="availability-status"], [data-test="fulfillment-shipping"]',
-      image: '[data-test="product-image"] img, picture img',
-      productGrid: '[data-test="product-card"], [data-test="@web/ProductCard"]',
-      productLink: 'a[href*="/p/"], a[data-test="product-title"]',
     },
   });
 }
@@ -312,24 +310,6 @@ export function createGameStopScraper(): GenericRetailerScraper {
       image: '.product-tile__image img, .product-card-image img',
       productGrid: '.product-tile, .product-card, [data-index]',
       productLink: 'a.product-tile__link, a.product-card__link, .product-card-title a',
-    },
-  });
-}
-
-export function createBestBuyScraper(): GenericRetailerScraper {
-  return new GenericRetailerScraper({
-    name: 'bestbuy',
-    baseUrl: 'https://www.bestbuy.com',
-    rateLimitMs: 2500,
-    needsBrowser: true,
-    searchUrlTemplate: 'https://www.bestbuy.com/site/searchpage.jsp?st={query}&cp={page}',
-    selectors: {
-      productName: '.sku-title a, .sku-header a, h4.sku-title a',
-      price: '.priceView-customer-price span, .pricing-price__range, .sr-text',
-      availability: '.fulfillment-add-to-cart-button, .add-to-cart-button, [data-button-state]',
-      image: '.product-image img, img.product-image, picture.product-image img',
-      productGrid: '.sku-item, .sr-item, .list-item',
-      productLink: '.sku-title a, .sku-header a',
     },
   });
 }

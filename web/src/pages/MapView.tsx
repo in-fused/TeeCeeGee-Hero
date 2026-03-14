@@ -39,6 +39,7 @@ const RETAILER_COLORS: Record<string, string> = {
   bestbuy: 'bg-[#0046be]/20 text-[#6db3f2]',
   cardkingdom: 'bg-[#1e3a5f]/20 text-[#6db3f2]',
   coolstuffinc: 'bg-[#ff6600]/20 text-[#ff9955]',
+  justtcg: 'bg-[#7c3aed]/20 text-[#a78bfa]',
 };
 
 // Custom marker icons

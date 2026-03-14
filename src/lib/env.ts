@@ -11,6 +11,9 @@ const envSchema = z.object({
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(100),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   ADMIN_SECRET: z.string().min(1).optional(),
+  // Retailer API keys (optional — scrapers degrade gracefully without them)
+  BESTBUY_API_KEY: z.string().optional(),
+  JUSTTCG_API_KEY: z.string().optional(),
   // External TCG API keys (optional — connectors degrade gracefully without them)
   POKEMON_TCG_API_KEY: z.string().optional(),
   ONEPIECE_TCG_API_URL: z.string().url().default('https://optcgapi.com/api'),
