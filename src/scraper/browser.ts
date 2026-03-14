@@ -5,11 +5,11 @@
  * Playwright is dynamically imported — if not installed or browsers
  * not downloaded, all methods degrade gracefully.
  *
- * Browser discovery order:
- *   1. Default Playwright-managed Chromium (exact version match)
- *   2. Any compatible Chromium in the Playwright cache
- *   3. Runtime install attempt (npx playwright install chromium)
- *   4. Graceful degradation — HTTP-only scrapers still work
+ * Render strategy (checked in order):
+ *   1. Remote Scrapling proxy (if SCRAPLING_API_URL env var is set)
+ *      — routes requests to an external EC2 running Scrapling's StealthyFetcher
+ *   2. Local Playwright Chromium (default, with 4-strategy browser discovery)
+ *   3. Graceful degradation — HTTP-only scrapers still work
  *
  * Usage:
  *   const pool = BrowserPool.getInstance();
@@ -23,7 +23,12 @@ import { join } from 'path';
 import { execSync } from 'child_process';
 import { logger } from '../lib/logger';
 import { generateFingerprint, fingerprintToHeaders, getRandomDelay } from './fingerprint';
-import { applyStealthScripts, isCloudflareChallenge, waitForCloudflareChallenge, humanScroll } from './stealth';
+import {
+  applyStealthScripts,
+  isCloudflareChallenge,
+  waitForCloudflareChallenge,
+  humanScroll,
+} from './stealth';
 
 /** Captured XHR/fetch response from AJAX interception */
 export interface InterceptedResponse {
@@ -121,7 +126,9 @@ export class BrowserPool {
           try {
             const entries = readdirSync(dir);
             logger.info({ cacheDir: dir, contents: entries }, 'Playwright cache contents');
-          } catch { /* can't read */ }
+          } catch {
+            /* can't read */
+          }
         }
       }
 
@@ -155,11 +162,17 @@ export class BrowserPool {
             args: launchArgs,
           });
           this.available = true;
-          logger.info({ executablePath: execPath }, 'Playwright browser pool initialized (cached binary)');
+          logger.info(
+            { executablePath: execPath },
+            'Playwright browser pool initialized (cached binary)',
+          );
           return true;
         } catch (cachedErr) {
           logger.info(
-            { error: cachedErr instanceof Error ? cachedErr.message : String(cachedErr), executablePath: execPath },
+            {
+              error: cachedErr instanceof Error ? cachedErr.message : String(cachedErr),
+              executablePath: execPath,
+            },
             'Cached Chromium binary failed to launch',
           );
         }
@@ -205,7 +218,10 @@ export class BrowserPool {
               args: launchArgs,
             });
             this.available = true;
-            logger.info({ executablePath: newPath }, 'Playwright browser pool initialized (post-install scan)');
+            logger.info(
+              { executablePath: newPath },
+              'Playwright browser pool initialized (post-install scan)',
+            );
             return true;
           } catch {
             // All strategies exhausted
@@ -214,7 +230,9 @@ export class BrowserPool {
       }
 
       this.available = false;
-      logger.warn('Playwright unavailable — no compatible Chromium binary found. Check build command includes: npx playwright install --with-deps chromium chromium-headless-shell');
+      logger.warn(
+        'Playwright unavailable — no compatible Chromium binary found. Check build command includes: npx playwright install --with-deps chromium chromium-headless-shell',
+      );
       return false;
     } catch (err) {
       this.available = false;
@@ -241,13 +259,21 @@ export class BrowserPool {
 
         // 1. Check for headless shell first (Playwright prefers this for headless mode)
         const headlessShellEntries = allEntries
-          .filter((d) => d.startsWith('chromium_headless_shell-') || d.startsWith('chromium-headless-shell-'))
+          .filter(
+            (d) =>
+              d.startsWith('chromium_headless_shell-') || d.startsWith('chromium-headless-shell-'),
+          )
           .sort()
           .reverse();
 
         for (const entry of headlessShellEntries) {
           // Playwright 1.58+ path: chromium_headless_shell-XXXX/chrome-headless-shell-linux64/chrome-headless-shell
-          const hsLinuxPath = join(cacheDir, entry, 'chrome-headless-shell-linux64', 'chrome-headless-shell');
+          const hsLinuxPath = join(
+            cacheDir,
+            entry,
+            'chrome-headless-shell-linux64',
+            'chrome-headless-shell',
+          );
           if (existsSync(hsLinuxPath)) {
             logger.info({ path: hsLinuxPath, version: entry }, 'Found cached headless shell');
             return hsLinuxPath;
@@ -255,7 +281,10 @@ export class BrowserPool {
           // Alternative layout
           const hsAltPath = join(cacheDir, entry, 'chrome-headless-shell');
           if (existsSync(hsAltPath)) {
-            logger.info({ path: hsAltPath, version: entry }, 'Found cached headless shell (alt path)');
+            logger.info(
+              { path: hsAltPath, version: entry },
+              'Found cached headless shell (alt path)',
+            );
             return hsAltPath;
           }
         }
@@ -274,7 +303,15 @@ export class BrowserPool {
             return linuxPath;
           }
           // macOS path
-          const macPath = join(cacheDir, entry, 'chrome-mac', 'Chromium.app', 'Contents', 'MacOS', 'Chromium');
+          const macPath = join(
+            cacheDir,
+            entry,
+            'chrome-mac',
+            'Chromium.app',
+            'Contents',
+            'MacOS',
+            'Chromium',
+          );
           if (existsSync(macPath)) {
             logger.info({ path: macPath, version: entry }, 'Found cached Chromium');
             return macPath;
@@ -315,10 +352,84 @@ export class BrowserPool {
   }
 
   /**
+   * Try rendering via the remote Scrapling proxy (EC2).
+   * Returns null if SCRAPLING_API_URL is not configured or the proxy fails.
+   */
+  private async tryScraplingProxy(
+    url: string,
+    options: RenderOptions,
+  ): Promise<RenderedPage | null> {
+    const proxyUrl = process.env.SCRAPLING_API_URL;
+    if (!proxyUrl) return null;
+
+    const apiSecret = process.env.SCRAPLING_API_SECRET || '';
+    const endpoint = `${proxyUrl.replace(/\/$/, '')}/render`;
+
+    try {
+      const { default: axios } = await (Function('return import("axios")')() as Promise<
+        typeof import('axios')
+      >);
+
+      const resp = await axios.post(
+        endpoint,
+        {
+          url,
+          wait_selector: options.waitSelector || null,
+          timeout: options.timeout || 30_000,
+          block_resources: options.blockAssets ?? false,
+          solve_cloudflare: options.handleCloudflare ?? true,
+          humanize: options.humanScroll ?? true,
+          network_idle: true,
+          headless: true,
+        },
+        {
+          timeout: (options.timeout || 30_000) + 15_000, // proxy timeout + buffer
+          headers: {
+            'Content-Type': 'application/json',
+            ...(apiSecret ? { Authorization: `Bearer ${apiSecret}` } : {}),
+          },
+        },
+      );
+
+      const data = resp.data;
+      if (!data?.html) {
+        logger.warn({ url }, 'Scrapling proxy returned empty response');
+        return null;
+      }
+
+      logger.info(
+        { url, status: data.status, elapsed: data.elapsed_ms, bytes: data.html.length },
+        'Rendered via Scrapling proxy',
+      );
+
+      return {
+        html: data.html,
+        url: data.url || url,
+        status: data.status || 200,
+        cookies: [],
+      };
+    } catch (err) {
+      logger.warn(
+        { url, error: err instanceof Error ? err.message : String(err) },
+        'Scrapling proxy request failed — falling back to local Playwright',
+      );
+      return null;
+    }
+  }
+
+  /**
    * Navigate to a URL in a fresh browser context, wait for JS to render,
    * and return the fully-rendered HTML.
+   *
+   * If SCRAPLING_API_URL is set, tries the remote Scrapling proxy first.
+   * Falls back to local Playwright if the proxy is unavailable.
    */
   async getRenderedHtml(url: string, options: RenderOptions = {}): Promise<RenderedPage | null> {
+    // Strategy 1: Try remote Scrapling proxy (EC2)
+    const scraplingResult = await this.tryScraplingProxy(url, options);
+    if (scraplingResult) return scraplingResult;
+
+    // Strategy 2: Local Playwright
     if (!(await this.init())) return null;
     if (!this.browser || !this.pw) return null;
 
@@ -399,7 +510,11 @@ export class BrowserPool {
           try {
             const contentType = response.headers()['content-type'] || '';
             // Only capture JSON/text responses, skip binaries
-            if (contentType.includes('json') || contentType.includes('text') || contentType.includes('javascript')) {
+            if (
+              contentType.includes('json') ||
+              contentType.includes('text') ||
+              contentType.includes('javascript')
+            ) {
               const body = await response.text();
               intercepted.push({
                 url: resUrl,
@@ -484,7 +599,10 @@ export class BrowserPool {
         interceptedResponses: intercepted.length > 0 ? intercepted : undefined,
       };
     } catch (err) {
-      logger.error({ url, error: err instanceof Error ? err.message : String(err) }, 'Browser render failed');
+      logger.error(
+        { url, error: err instanceof Error ? err.message : String(err) },
+        'Browser render failed',
+      );
       return null;
     } finally {
       this.contextCount--;
