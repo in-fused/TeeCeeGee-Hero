@@ -2,7 +2,25 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "commonjs",
+    "lib": ["ES2022"],
     "strict": true,
-    "esModuleInterop": true
-  }
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "outDir": "dist",
+    "rootDir": ".",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "@packfinder/connectors/*": ["packages/connectors/*"],
+      "@packfinder/geo/*": ["packages/geo/*"],
+      "@packfinder/db/*": ["src/db/*"],
+      "@packfinder/lib/*": ["src/lib/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "packages/**/*.ts"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts"]
 }

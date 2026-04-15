@@ -1,0 +1,54 @@
+# Render Infrastructure-as-Code blueprint
+# This file tells Render exactly what to create when you connect the repo
+
+databases:
+  - name: packfinder-db
+    plan: free
+    databaseName: packfinder
+    postgresSQLVersion: "16"
+    ipAllowList: []
+
+services:
+  - type: web
+    plan: free
+    name: packfinder-api
+    runtime: node
+    buildCommand: npm ci --include=dev && PLAYWRIGHT_BROWSERS_PATH=0 npx playwright install --with-deps chromium chromium-headless-shell && echo "=== Playwright cache contents ===" && ls -la $HOME/.cache/ms-playwright/ 2>/dev/null || true && ls -la /opt/render/.cache/ms-playwright/ 2>/dev/null || true && npm run build && cp -r src/db/migrations dist/src/db/migrations && node dist/src/db/migrate.js
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: RATE_LIMIT_WINDOW_MS
+        value: "60000"
+      - key: RATE_LIMIT_MAX_REQUESTS
+        value: "100"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: packfinder-db
+          property: connectionString
+      - key: POKEMON_TCG_API_KEY
+        sync: false
+      - key: ADMIN_SECRET
+        sync: false
+
+  - type: web
+    plan: free
+    name: packfinder-web
+    runtime: static
+    rootDir: web
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        value: https://packfinder-api.onrender.com

@@ -1,0 +1,17 @@
+[Unit]
+Description=Scrapling Proxy Service
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/scrapling-proxy
+ExecStart=/usr/bin/python3 server.py
+Restart=always
+RestartSec=5
+Environment=SCRAPLING_PORT=8787
+# Uncomment and set a shared secret for auth:
+# Environment=SCRAPLING_API_SECRET=your-secret-here
+
+[Install]
+WantedBy=multi-user.target
