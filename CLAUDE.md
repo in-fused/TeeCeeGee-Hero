@@ -37,11 +37,24 @@ TCG inventory tracker for Pokemon + One Piece sealed products. Finds stores near
 |----------|--------|--------|
 | TCGplayer | Working | POST to `mp-search-api.tcgplayer.com/v1/search/request` (no auth) |
 | eBay | Working (may rate-limit) | HTML parsing + JSON-LD fallback |
-| Amazon | Needs Playwright | JS-rendered, `needsBrowser: true` |
-| Walmart | Needs Playwright | JS-rendered, `needsBrowser: true` |
-| Target | Needs Playwright | JS-rendered, `needsBrowser: true` |
-| GameStop | Needs Playwright | JS-rendered, `needsBrowser: true` |
-| Best Buy | Needs Playwright | JS-rendered, `needsBrowser: true` |
+| Amazon | Needs browser proxy | JS-rendered, `needsBrowser: true` |
+| Walmart | Needs browser proxy | JS-rendered, `needsBrowser: true` |
+| Target | Needs browser proxy | JS-rendered, `needsBrowser: true` |
+| GameStop | Needs browser proxy | JS-rendered, `needsBrowser: true` |
+| Best Buy | Needs browser proxy | JS-rendered, `needsBrowser: true` |
+
+## Browser proxy (Scrapling on Oracle Cloud ARM)
+- Service lives at `services/scrapling-proxy/` — deploy on OCI ARM instance, not Render
+- FastAPI wrapping Scrapling's StealthyFetcher (Camoufox / Firefox-based, bypasses Cloudflare Turnstile)
+- Camoufox has native aarch64 Linux builds — works correctly on ARM64
+- Setup: SSH into OCI instance, `git clone` or `scp` the `services/scrapling-proxy/` folder, then `bash setup.sh`
+  - Script auto-detects user (`opc` on Oracle Linux, `ubuntu` on Ubuntu image), working dir, Python path
+  - Systemd service patched and printed to `/tmp/scrapling-proxy-patched.service` — copy to `/etc/systemd/system/`
+- OCI firewall: must open port 8787 in **both** the VCN Security List AND the OS-level firewall
+  - Oracle Linux: `sudo firewall-cmd --permanent --add-port=8787/tcp && sudo firewall-cmd --reload`
+  - Ubuntu: `sudo ufw allow 8787/tcp`
+- Render env vars to set: `SCRAPLING_API_URL=http://OCI_PUBLIC_IP:8787`, `SCRAPLING_API_SECRET=...`
+- `BrowserPool.getRenderedHtml()` tries OCI proxy first, falls back to local Playwright, then returns null
 
 ## Deployment (Render)
 - `render.yaml` blueprint — packfinder-db (PostgreSQL 16), packfinder-api, packfinder-web
@@ -59,7 +72,7 @@ TCG inventory tracker for Pokemon + One Piece sealed products. Finds stores near
 
 ## Milestones remaining
 - M3: Public Signal Engine — eBay API, TCGPlayer listings, restock scoring (partially done via scraper)
-- M3.5: Browser automation — activate Amazon/Walmart/Target/GameStop/BestBuy scrapers via Playwright
+- M3.5: Browser automation — deploy Scrapling proxy to OCI ARM, set SCRAPLING_API_URL on Render → activates Amazon/Walmart/Target/GameStop/BestBuy scrapers
 - M4: Shipment Tracking — USPS/UPS/FedEx connectors, ETA model
 - M5: Alerts & UX — notifications, user preferences, rate limiting
 

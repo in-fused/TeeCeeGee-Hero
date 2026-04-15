@@ -4,13 +4,17 @@ After=network.target
 
 [Service]
 Type=simple
+# Oracle Cloud ARM: change "ubuntu" to your instance user
+#   Oracle Linux image → User=opc
+#   Ubuntu image       → User=ubuntu
+# The setup.sh script patches this automatically.
 User=ubuntu
 WorkingDirectory=/home/ubuntu/scrapling-proxy
 ExecStart=/usr/bin/python3 server.py
 Restart=always
 RestartSec=5
 Environment=SCRAPLING_PORT=8787
-# Uncomment and set a shared secret for auth:
+# Shared secret for auth (must match SCRAPLING_API_SECRET on Render):
 # Environment=SCRAPLING_API_SECRET=your-secret-here
 
 [Install]
