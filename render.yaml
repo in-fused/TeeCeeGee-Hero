@@ -13,8 +13,8 @@ services:
     plan: free
     name: packfinder-api
     runtime: node
-    buildCommand: npm ci --include=dev && PLAYWRIGHT_BROWSERS_PATH=0 npx playwright install --with-deps chromium chromium-headless-shell && echo "=== Playwright cache contents ===" && ls -la $HOME/.cache/ms-playwright/ 2>/dev/null || true && ls -la /opt/render/.cache/ms-playwright/ 2>/dev/null || true && npm run build && cp -r src/db/migrations dist/src/db/migrations && node dist/src/db/migrate.js
-    startCommand: npm start
+    buildCommand: npm ci --include=dev && npm run build && cp -r src/db/migrations dist/src/db/migrations
+    startCommand: node dist/src/db/migrate.js && npm start
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
@@ -29,6 +29,10 @@ services:
         fromDatabase:
           name: packfinder-db
           property: connectionString
+      - key: SCRAPLING_API_URL
+        value: http://150.136.153.194:8787
+      - key: SCRAPLING_API_SECRET
+        sync: false
       - key: POKEMON_TCG_API_KEY
         sync: false
       - key: ADMIN_SECRET
