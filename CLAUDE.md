@@ -7,8 +7,8 @@ TCG inventory tracker for Pokemon + One Piece sealed products. Finds stores near
 - Active branch: `claude/setup-packfinder-api-DtvPH` (PR #4, pending merge)
 - Build: clean (TypeScript compiles, 135/135 tests pass)
 - Infrastructure migrated to Oracle Cloud ARM (away from Render/Railway/EC2)
-  - API: OCI ARM instance, port 3000
-  - Scrapling proxy: OCI ARM instance, port 8787 (same machine)
+  - API: OCI ARM 150.136.153.194, port 3000
+  - Scrapling proxy: OCI ARM 150.136.153.194, port 8787 (same machine)
   - Frontend: Vercel (free, always on)
 - Scraper module integrated with TCGPlayer + eBay working
 - Browser scrapers (Amazon/Walmart/Target/GameStop/BestBuy) ready — need SCRAPLING_API_URL set
@@ -56,7 +56,7 @@ TCG inventory tracker for Pokemon + One Piece sealed products. Finds stores near
 - OCI firewall: must open port 8787 in **both** the VCN Security List AND the OS-level firewall
   - Oracle Linux: `sudo firewall-cmd --permanent --add-port=8787/tcp && sudo firewall-cmd --reload`
   - Ubuntu: `sudo ufw allow 8787/tcp`
-- Render env vars to set: `SCRAPLING_API_URL=http://OCI_PUBLIC_IP:8787`, `SCRAPLING_API_SECRET=...`
+- Env var to set on API: `SCRAPLING_API_URL=http://150.136.153.194:8787`, `SCRAPLING_API_SECRET=...`
 - `BrowserPool.getRenderedHtml()` tries OCI proxy first, falls back to local Playwright, then returns null
 
 ## Deployment (Render)

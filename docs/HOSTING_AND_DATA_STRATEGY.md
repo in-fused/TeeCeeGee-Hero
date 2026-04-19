@@ -11,7 +11,7 @@
 
 All services are on the Always Free OCI ARM tier — nothing sleeps, nothing expires.
 
-Set `SCRAPLING_API_URL=http://YOUR_OCI_IP:8787` on the API so browser scrapers
+Set `SCRAPLING_API_URL=http://150.136.153.194:8787` on the API so browser scrapers
 (Amazon, Walmart, Target, GameStop, Best Buy) route through the Scrapling proxy
 on the same machine.
 
@@ -21,8 +21,8 @@ on the same machine.
 
 ### Scrapling proxy (`services/scrapling-proxy/`)
 ```bash
-scp -r services/scrapling-proxy/ opc@YOUR_OCI_IP:~/scrapling-proxy/
-ssh opc@YOUR_OCI_IP
+scp -r services/scrapling-proxy/ opc@150.136.153.194:~/scrapling-proxy/
+ssh opc@150.136.153.194
 cd ~/scrapling-proxy && bash setup.sh
 sudo cp /tmp/scrapling-proxy-patched.service /etc/systemd/system/
 sudo systemctl enable --now scrapling-proxy
@@ -71,7 +71,7 @@ Deploy with:
 bash scripts/setup-vercel.sh
 ```
 Set these env vars in Vercel dashboard (Settings → Environment Variables):
-- `VITE_API_URL` = `http://YOUR_OCI_IP:3000` (or nginx domain)
+- `VITE_API_URL` = `http://150.136.153.194:3000` (or nginx domain)
 - `VITE_ADMIN_SECRET` = same value as `ADMIN_SECRET` on the API
 
 ---

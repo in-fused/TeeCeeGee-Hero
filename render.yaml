@@ -51,4 +51,4 @@ services:
         destination: /index.html
     envVars:
       - key: VITE_API_URL
-        value: https://packfinder-api.onrender.com
+        value: http://150.136.153.194:3000
