@@ -1,0 +1,28 @@
+# Railway deployment config for packfinder-api
+#
+# Required env vars (set in Railway dashboard → Variables):
+#   DATABASE_URL        — Railway Postgres plugin auto-injects this
+#   ADMIN_SECRET        — secret for /admin/scraper/* routes
+#   NODE_ENV            — set to "production"
+#
+# Optional env vars:
+#   SCRAPLING_API_URL   — http://OCI_IP:8787  (enables browser scrapers)
+#   SCRAPLING_API_SECRET
+#   BESTBUY_API_KEY
+#   JUSTTCG_API_KEY
+#   POKEMON_TCG_API_KEY
+#
+# Note: Playwright is NOT installed here — browser scraping routes through the
+# Scrapling proxy on Oracle Cloud ARM (SCRAPLING_API_URL). If that env var is
+# unset, browser-dependent scrapers degrade gracefully to empty results.
+
+[build]
+builder = "NIXPACKS"
+buildCommand = "npm ci --include=dev && npm run build && cp -r src/db/migrations dist/src/db/migrations"
+
+[deploy]
+startCommand = "node dist/src/db/migrate.js && npm start"
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10

@@ -1,5 +1,5 @@
 """
-Scrapling Proxy Service — runs on your EC2 instance.
+Scrapling Proxy Service — runs on your Oracle Cloud ARM instance.
 
 Exposes a simple HTTP API that accepts render requests from the
 PackFinder API server and returns fully-rendered HTML using Scrapling's
@@ -9,9 +9,9 @@ Endpoints:
     POST /render   — Render a URL and return HTML + metadata
     GET  /health   — Health check
 
-Setup on EC2:
+Setup on Oracle Cloud ARM:
     pip install "scrapling[all]" fastapi uvicorn
-    scrapling install          # downloads Camoufox browser
+    scrapling install          # downloads Camoufox browser (ARM64 build)
     python server.py           # starts on port 8787
 
 Environment variables:

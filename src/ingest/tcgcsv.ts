@@ -29,8 +29,16 @@ export interface TcgcsvResult {
   total_fetched: number;
 }
 
+const BROWSER_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  Accept: 'application/json, text/plain, */*',
+  'Accept-Language': 'en-US,en;q=0.9',
+  Referer: 'https://tcgcsv.com/',
+};
+
 async function fetchJson<T>(url: string): Promise<T> {
-  const res = await axios.get(url, { timeout: 30_000 });
+  const res = await axios.get(url, { timeout: 30_000, headers: BROWSER_HEADERS });
   return res.data;
 }
 
