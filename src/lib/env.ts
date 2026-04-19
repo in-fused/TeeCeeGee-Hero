@@ -11,7 +11,7 @@ const envSchema = z.object({
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(100),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   ADMIN_SECRET: z.string().min(1).optional(),
-  // Scrapling proxy (optional — enables stealth browser rendering via remote EC2)
+  // Scrapling proxy (optional — enables stealth browser rendering via Oracle Cloud ARM)
   SCRAPLING_API_URL: z.string().url().optional(),
   SCRAPLING_API_SECRET: z.string().optional(),
   // Retailer API keys (optional — scrapers degrade gracefully without them)

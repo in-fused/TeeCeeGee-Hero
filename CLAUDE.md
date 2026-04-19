@@ -4,11 +4,14 @@
 TCG inventory tracker for Pokemon + One Piece sealed products. Finds stores near a ZIP code, tracks product availability, scrapes marketplace listings, and will eventually track shipments + send restock alerts.
 
 ## Current state
-- Active branch: `claude/debug-packfinder-deploy-4Tjuv` (Render deploys from this)
+- Active branch: `claude/setup-packfinder-api-DtvPH` (PR #4, pending merge)
 - Build: clean (TypeScript compiles, 135/135 tests pass)
-- Deployed on Render (free tier): packfinder-db, packfinder-api, packfinder-web
+- Infrastructure migrated to Oracle Cloud ARM (away from Render/Railway/EC2)
+  - API: OCI ARM instance, port 3000
+  - Scrapling proxy: OCI ARM instance, port 8787 (same machine)
+  - Frontend: Vercel (free, always on)
 - Scraper module integrated with TCGPlayer + eBay working
-- Playwright MCP server configured for future browser automation
+- Browser scrapers (Amazon/Walmart/Target/GameStop/BestBuy) ready — need SCRAPLING_API_URL set
 
 ## Architecture
 - Express API server (`src/server.ts`) with connection pooling, helmet, CORS, rate limiting

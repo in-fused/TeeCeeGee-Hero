@@ -7,7 +7,7 @@
  *
  * Render strategy (checked in order):
  *   1. Remote Scrapling proxy (if SCRAPLING_API_URL env var is set)
- *      — routes requests to an external EC2 running Scrapling's StealthyFetcher
+ *      — routes requests to an Oracle Cloud ARM instance running Scrapling's StealthyFetcher
  *   2. Local Playwright Chromium (default, with 4-strategy browser discovery)
  *   3. Graceful degradation — HTTP-only scrapers still work
  *
@@ -352,7 +352,7 @@ export class BrowserPool {
   }
 
   /**
-   * Try rendering via the remote Scrapling proxy (EC2).
+   * Try rendering via the remote Scrapling proxy (Oracle Cloud ARM).
    * Returns null if SCRAPLING_API_URL is not configured or the proxy fails.
    */
   private async tryScraplingProxy(
@@ -425,7 +425,7 @@ export class BrowserPool {
    * Falls back to local Playwright if the proxy is unavailable.
    */
   async getRenderedHtml(url: string, options: RenderOptions = {}): Promise<RenderedPage | null> {
-    // Strategy 1: Try remote Scrapling proxy (EC2)
+    // Strategy 1: Try remote Scrapling proxy (Oracle Cloud ARM)
     const scraplingResult = await this.tryScraplingProxy(url, options);
     if (scraplingResult) return scraplingResult;
 
