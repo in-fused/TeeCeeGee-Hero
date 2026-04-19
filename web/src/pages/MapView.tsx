@@ -95,7 +95,23 @@ export function MapView() {
   const [loadingStoreListings, setLoadingStoreListings] = useState(false);
   const [listings, setListings] = useState<ScrapedListingResult[]>([]);
   const [loadingPrices, setLoadingPrices] = useState(false);
+  const [productInput, setProductInput] = useState('');
+  const [productQuery, setProductQuery] = useState('');
   const mapRef = useRef<L.Map | null>(null);
+
+  const runProductSearch = useCallback(async (query: string) => {
+    setProductQuery(query);
+    setLoadingPrices(true);
+    setListings([]);
+    try {
+      const result = await searchPrices({ q: query, limit: '20' });
+      setListings(result.results || []);
+    } catch {
+      setListings([]);
+    } finally {
+      setLoadingPrices(false);
+    }
+  }, []);
 
   const doSearch = useCallback(async () => {
     if (!/^\d{5}$/.test(zip)) return;
@@ -104,6 +120,7 @@ export function MapView() {
     setSelectedStore(null);
     setListings([]);
     setStoreListings([]);
+    setProductQuery('');
     try {
       const result = await searchStores({
         zip,
@@ -125,7 +142,6 @@ export function MapView() {
       )
         .then((responses) => {
           const all = responses.flatMap((r) => r.results || []);
-          // Deduplicate by product_url
           const seen = new Set<string>();
           const unique = all.filter((l) => {
             if (!l.product_url || seen.has(l.product_url)) return false;
@@ -256,6 +272,49 @@ export function MapView() {
             </form>
           </div>
 
+          {/* Product search */}
+          <div className="p-4 border-b border-[var(--color-border-subtle)]">
+            <p className="text-[10px] uppercase tracking-wider text-gray-500 font-medium mb-2">
+              Product Price Search
+            </p>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (productInput.trim()) runProductSearch(productInput.trim());
+              }}
+              className="space-y-2"
+            >
+              <SearchInput
+                icon="search"
+                placeholder="e.g. Scarlet Violet ETB, booster box..."
+                value={productInput}
+                onChange={(e) => setProductInput(e.currentTarget.value)}
+              />
+              <div className="flex flex-wrap gap-1.5">
+                {['Pokemon ETB', 'Booster Box', 'One Piece'].map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    onClick={() => {
+                      setProductInput(q);
+                      runProductSearch(q);
+                    }}
+                    className="px-2 py-1 rounded-full text-[10px] bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="submit"
+                disabled={!productInput.trim() || loadingPrices}
+                className="w-full py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {loadingPrices ? 'Searching...' : 'Search Prices'}
+              </button>
+            </form>
+          </div>
+
           {/* Results */}
           <div className="p-4">
             <AnimatePresence>
@@ -293,10 +352,10 @@ export function MapView() {
             )}
 
             {/* Live prices loading indicator */}
-            {!loading && loadingPrices && listings.length === 0 && stores.length > 0 && (
+            {!loading && loadingPrices && listings.length === 0 && (
               <div className="mt-6 pt-4 border-t border-[var(--color-border-subtle)]">
                 <p className="text-[10px] uppercase tracking-wider text-gray-500 font-medium mb-3">
-                  Live Prices &amp; Stock
+                  {productQuery ? `Prices: "${productQuery}"` : 'Live Prices & Stock'}
                 </p>
                 <div className="flex items-center gap-2 py-4">
                   <Spinner />
@@ -309,7 +368,7 @@ export function MapView() {
             {!loading && listings.length > 0 && (
               <div className="mt-6 pt-4 border-t border-[var(--color-border-subtle)]">
                 <p className="text-[10px] uppercase tracking-wider text-gray-500 font-medium mb-3">
-                  Live Prices &amp; Stock
+                  {productQuery ? `Prices: "${productQuery}"` : 'Live Prices & Stock'}
                 </p>
                 <div className="space-y-2">
                   {listings.slice(0, 30).map((l) => (
