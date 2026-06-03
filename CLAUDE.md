@@ -1,6 +1,6 @@
 # PackFinder API — Project Context
 
-## What this is
+## What this is?
 TCG inventory tracker for Pokemon + One Piece sealed products. Finds stores near a ZIP code, tracks product availability, scrapes marketplace listings, and will eventually track shipments + send restock alerts.
 
 ## Current state
